@@ -16,3 +16,7 @@ scratch/
 dist/
 *.zip
 *.crx
+
+# Local Codex project state and verified backups
+/docs/
+/bak/
