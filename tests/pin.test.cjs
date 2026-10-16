@@ -100,7 +100,7 @@ test('the default auto-pin preference starts off, applies to future sessions, an
   setting.dispatchEvent(new popup.window.Event('change', { bubbles: true }));
   assert.equal(prefs.sidex_auto_pin, true);
   popup.window.document.querySelector('[data-lang="en"]').click();
-  assert.match(popup.window.document.querySelector('#txt-auto-pin-hint').textContent, /close them manually/i);
+  assert.match(popup.window.document.querySelector('#txt-auto-pin-hint').textContent, /new panels open pinned/i);
 });
 
 test('pinned highlight survives X replacing the post class, follows the panel, and clears on unpin or close', async t => {

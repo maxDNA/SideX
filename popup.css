@@ -135,7 +135,7 @@ body {
 }
 
 .sidex-switch-main-row,
-.sidex-auto-pin-row {
+.sidex-switch-setting-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
