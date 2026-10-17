@@ -126,7 +126,7 @@ body {
   padding: 14px;
 }
 
-/* Switch Card */
+/* Switch and reply settings cards */
 .sidex-switch-card {
   display: flex;
   flex-direction: column;
@@ -135,7 +135,8 @@ body {
 }
 
 .sidex-switch-main-row,
-.sidex-switch-setting-row {
+.sidex-switch-setting-row,
+.sidex-auto-pin-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
