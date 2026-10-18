@@ -306,6 +306,76 @@ test('a pinned panel follows X detail navigation and remains open on an empty th
   assert.equal(p.query('.sidepeek-comment-item').dataset.id, '201');
 });
 
+for (const action of ['keep pinned', 'unpin', 'close', 'switch']) {
+  test('a pending detail request settles correctly after returning home and ' + action, async t => {
+    let finish;
+    const p = createPage({ request: m => m.tweetId === '200'
+      ? new Promise(resolve => { finish = resolve; }) : thread(m.tweetId) });
+    t.after(() => p.w.close());
+    await tick(); p.clickPost(0); await tick(); p.query('.sidepeek-btn-pin').click();
+    p.w.history.pushState({}, '', '/reader/status/200');
+    p.w.dispatchEvent(new p.w.PopStateEvent('popstate')); await tick();
+    assert.ok(p.query('.sidepeek-body .sidepeek-spinner'));
+    const editor = p.query('.sidepeek-footer-textarea'); editor.value = 'Draft while loading';
+    editor.dispatchEvent(new p.w.Event('input', { bubbles: true }));
+    p.w.history.pushState({}, '', '/home');
+    p.w.dispatchEvent(new p.w.PopStateEvent('popstate')); await tick();
+    if (action === 'unpin') p.query('.sidepeek-btn-pin').click();
+    else if (action === 'close') p.query('.sidepeek-btn-close').click();
+    else if (action === 'switch') { p.clickPost(0); await tick(); }
+    finish(thread('200')); await tick();
+    if (action === 'close') {
+      assert.equal(p.query('#sidepeek-drawer-root').classList.contains('sidepeek-open'), false);
+    } else {
+      assert.equal(p.query('.sidepeek-body .sidepeek-spinner'), null);
+      assert.equal(p.query('#sidepeek-drawer-root').classList.contains('sidepeek-open'), true);
+      assert.ok(p.query(action === 'switch' ? '[data-id="101"]' : '[data-id="201"]'));
+      if (action !== 'switch') assert.equal(p.query('.sidepeek-footer-textarea').value, 'Draft while loading');
+    }
+    if (action === 'switch' || action === 'close') assert.equal(p.query('[data-id="201"]'), null);
+    if (action === 'close') {
+      p.clickPost(1); await tick(); finish(thread('200')); await tick();
+      assert.ok(p.query('[data-id="201"]'));
+      assert.equal(p.query('.sidepeek-body .sidepeek-spinner'), null);
+      assert.equal(p.query('.sidepeek-footer-textarea').value, 'Draft while loading');
+    }
+  });
+}
+
+test('a failed retained detail load shows retry after returning home and can finish successfully', async t => {
+  let finish, fail;
+  const p = createPage({ request: m => m.tweetId === '200'
+    ? new Promise((resolve, reject) => { finish = resolve; fail = reject; }) : thread(m.tweetId) });
+  t.after(() => p.w.close());
+  await tick(); p.clickPost(0); await tick(); p.query('.sidepeek-btn-pin').click();
+  p.w.history.pushState({}, '', '/reader/status/200');
+  p.w.dispatchEvent(new p.w.PopStateEvent('popstate')); await tick();
+  p.w.history.pushState({}, '', '/home');
+  p.w.dispatchEvent(new p.w.PopStateEvent('popstate')); await tick();
+  fail(new Error('offline')); await tick();
+  assert.equal(p.query('.sidepeek-body .sidepeek-spinner'), null);
+  assert.ok(p.query('.sidepeek-retry-btn'));
+  p.query('.sidepeek-retry-btn').click(); await tick(); finish(thread('200')); await tick();
+  assert.ok(p.query('[data-id="201"]'));
+  assert.equal(p.query('.sidepeek-btn-pin').getAttribute('aria-pressed'), 'true');
+});
+
+test('a pinned empty detail response retains a restored child draft and its recipient', async t => {
+  let empty = false;
+  const p = createPage({ request: m => m.tweetId === '200' && empty
+    ? { data: [{ tweet_results: { result: tweet('200') } }] } : thread(m.tweetId) });
+  t.after(() => p.w.close());
+  await tick(); p.clickPost(1); await tick(); p.query('.sidepeek-act-reply').click();
+  const editor = p.query('.sidepeek-footer-textarea'); editor.value = 'Reply to child 201';
+  editor.dispatchEvent(new p.w.Event('input', { bubbles: true }));
+  p.clickPost(0); await tick(); p.query('.sidepeek-btn-pin').click(); empty = true;
+  p.w.history.pushState({}, '', '/reader/status/200');
+  p.w.dispatchEvent(new p.w.PopStateEvent('popstate')); await tick();
+  assert.ok(p.query('.sidepeek-empty-box'));
+  assert.equal(p.query('.sidepeek-footer-textarea').value, 'Reply to child 201');
+  assert.equal(p.query('.sidepeek-footer-reply-target').style.display, 'flex');
+});
+
 test('auto-pin also applies when a detail route opens the sidebar without a timeline click', async t => {
   const p = createPage({ settings: { sidex_auto_pin: true } });
   t.after(() => p.w.close());

@@ -114,6 +114,7 @@
     autoExpandReplyText: false,
     threadPages: new Map(),
     inlinePages: new Map(),
+    unavailableReplyIds: new Set(),
     openGatedThreads: new Set(),
     consumedCursors: new Map(),
     anchorCommentId: null,
@@ -225,9 +226,9 @@
     storage.get({ sidex_enabled: true, sidex_auto_load_replies: true, sidex_auto_expand_reply_text: false, sidex_lang: null, sidex_sub_reply_limit: 1, sidex_reply_mode: "drawer", sidex_photo_mode: "sidex", sidex_translation_provider: "x", sidex_auto_pin: false }, (res) => {
       settingsLoaded = true;
       isSideXEnabled = res.sidex_enabled !== false;
-      autoPinDefault = res.sidex_auto_pin === true;
       state.autoLoadReplies = res.sidex_auto_load_replies !== false;
       state.autoExpandReplyText = res.sidex_auto_expand_reply_text === true;
+      autoPinDefault = res.sidex_auto_pin === true;
       state.translationProvider = ["x", "google", "external"].includes(res.sidex_translation_provider) ? res.sidex_translation_provider : "x";
       state.photoMode = res.sidex_photo_mode === "native" ? "native" : "sidex";
       if (res.sidex_lang) overrideLocale = res.sidex_lang;
@@ -3640,21 +3641,68 @@
   }
 
   function visibleReplies() {
-    return state.replies.filter(reply => !reply._gateFor || state.openGatedThreads.has(reply._gateFor))
+    const byId = new Map([state.focalModel, ...state.replies].filter(Boolean).map(reply => [reply.id, reply]));
+    const visibility = new Map();
+    const isVisible = reply => {
+      const path = new Set();
+      let id = reply.id;
+      let visible = true;
+      while (id && !path.has(id)) {
+        if (visibility.has(id)) { visible = visibility.get(id); break; }
+        path.add(id);
+        const model = byId.get(id);
+        if (state.unavailableReplyIds.has(id) || (model?._gateFor && !state.openGatedThreads.has(model._gateFor))) {
+          visible = false;
+          break;
+        }
+        if (id === state.focalTweetId) break;
+        const parentId = model?.inReplyToId;
+        id = byId.has(parentId) || state.unavailableReplyIds.has(parentId) ? parentId : model?._subThreadOf || parentId;
+      }
+      for (const ancestorId of path) visibility.set(ancestorId, visible);
+      return visible;
+    };
+    return state.replies.filter(isVisible)
       .slice().sort((a, b) => Boolean(a._gateFor) - Boolean(b._gateFor));
+  }
+
+  function mergeReplyModels(replies, unavailableIds = [], subThreadId = null) {
+    const byId = new Map(state.replies.map(reply => [reply.id, reply]));
+    let added = 0;
+    let changed = false;
+    for (const reply of replies) {
+      if (reply.id === state.focalTweetId) continue;
+      if (state.unavailableReplyIds.delete(reply.id)) changed = true;
+      const existing = byId.get(reply.id);
+      if (existing) {
+        const previous = JSON.stringify(existing);
+        delete existing._gateFor;
+        delete existing._sectionLabel;
+        Object.assign(existing, reply);
+        if (previous !== JSON.stringify(existing)) changed = true;
+      } else {
+        if (subThreadId) reply._subThreadOf = subThreadId;
+        state.replies.push(reply);
+        byId.set(reply.id, reply);
+        added++;
+        changed = true;
+      }
+    }
+    for (const id of unavailableIds) {
+      if (!state.unavailableReplyIds.has(id)) { state.unavailableReplyIds.add(id); changed = true; }
+    }
+    return { added, changed };
   }
 
   function acceptNativeThread(payload) {
     if (!state.open || state.loading || !state.focalModel || !payload?.sidepeekObservedThreads) return;
-    const { replies, pagination } = Core.parseTweetDetail({ data: {}, ...payload }, state.focalTweetId,
+    const { replies, pagination, unavailableIds } = Core.parseTweetDetail({ data: {}, ...payload }, state.focalTweetId,
       [state.focalModel, ...state.replies]);
-    const ids = new Set(state.replies.map(reply => reply.id));
-    const added = replies.filter(reply => !ids.has(reply.id));
-    const signature = () => JSON.stringify([...state.inlinePages].map(([key, page]) => [key, page.cursor]));
+    const signature = () => JSON.stringify([...state.inlinePages].map(([key, page]) => [key, page.cursor, page.gateFor]));
     const previous = signature();
-    state.replies.push(...added);
+    const { changed } = mergeReplyModels(replies, unavailableIds);
     rememberInlinePages(pagination);
-    if (added.length || previous !== signature()) {
+    if (changed || previous !== signature()) {
       state.tree = Core.buildConversationTree(visibleReplies(), state.focalTweetId);
       renderDrawer();
     }
@@ -3694,6 +3742,12 @@
       }
       const consumed = previous?.consumed || new Set();
       if (key === consumedKey && previous?.cursor) consumed.add(previous.cursor);
+      // Background observations of the same cursor must retain the owner of
+      // an in-flight request, and must not resume paused or failed pagination.
+      if (previous?.cursor === descriptor.cursor) {
+        Object.assign(previous, descriptor, { stalled: consumed.has(descriptor.cursor) });
+        continue;
+      }
       state.inlinePages.set(key, { ...descriptor, consumed,
         stalled: consumed.has(descriptor.cursor), paused: false, error: false, loading: false });
     }
@@ -3775,14 +3829,8 @@
       const json = await requestPage("READ_THREAD", { tweetId: page.requestTweetId, cursor: page.cursor });
       if (!state.open || generation !== state.threadGeneration || state.inlinePages.get(key) !== page) return;
       const section = page.gateFor ? state.threadPages.get(page.gateFor)?.sectionLabel || foldedText() : "";
-      const { focal, replies, pagination } = Core.parseTweetDetail(json, page.requestTweetId, [state.focalModel, ...state.replies], section);
-      const existing = new Map(state.replies.map(reply => [reply.id, reply]));
-      let added = 0;
-      for (const reply of replies) {
-        if (reply.id === state.focalTweetId) continue;
-        if (existing.has(reply.id)) Object.assign(existing.get(reply.id), reply);
-        else { state.replies.push(reply); existing.set(reply.id, reply); added++; }
-      }
+      const { focal, replies, pagination, unavailableIds } = Core.parseTweetDetail(json, page.requestTweetId, [state.focalModel, ...state.replies], section);
+      const { added } = mergeReplyModels(replies, unavailableIds);
       if (focal?.id === state.focalTweetId) state.focalModel = focal;
       state.tree = Core.buildConversationTree(visibleReplies(), state.focalTweetId);
       for (const root of state.tree.rootReplies) {
@@ -3810,7 +3858,7 @@
     row.className = "sidepeek-pagination";
     const busy = state.loadingThreadIds.has(tweetId);
     if (opened) appendSectionLabel(container, { _gateFor: tweetId, _sectionLabel: page.sectionLabel });
-    if (!opened && ((page.gated && !cursor) || preloaded)) {
+    if (!opened && !cursor && (page.gated || preloaded)) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "sidepeek-expand-btn sidepeek-gated-btn";
@@ -3876,6 +3924,7 @@
     state.threadCursors.clear();
     state.threadPages.clear();
     state.inlinePages.clear();
+    state.unavailableReplyIds.clear();
     state.openGatedThreads.clear();
     state.consumedCursors.clear();
     state.replyTarget = getSavedReplyTarget(tweetId);
@@ -3884,9 +3933,10 @@
     try {
       const json = await requestPage("READ_THREAD", { tweetId });
       if (!state.open || state.focalTweetId !== tweetId || generation !== state.threadGeneration) return;
-      const { focal, replies, cursor, pagination } = Core.parseTweetDetail(json, tweetId);
+      const { focal, replies, cursor, pagination, unavailableIds } = Core.parseTweetDetail(json, tweetId);
       state.focalModel = focal;
       state.replies = replies;
+      state.unavailableReplyIds = new Set(unavailableIds);
       state.tree = Core.buildConversationTree(visibleReplies(), tweetId);
       rememberThreadCursor(tweetId, cursor);
       state.threadPages.set(tweetId, pagination);
@@ -3922,22 +3972,10 @@
 
       const previousPage = state.threadPages.get(commentId) || {};
       const gated = state.openGatedThreads.has(commentId);
-      const { focal, replies, cursor: nextCursor, pagination } = Core.parseTweetDetail(json, commentId, [state.focalModel, ...state.replies], gated ? previousPage.sectionLabel || foldedText() : "");
+      const { focal, replies, cursor: nextCursor, pagination, unavailableIds } = Core.parseTweetDetail(json, commentId, [state.focalModel, ...state.replies], gated ? previousPage.sectionLabel || foldedText() : "");
       const beforeIds = new Set(state.replies.map(reply => reply.id));
 
-      // Merge pages by ID so duplicates update their existing model, and a
-      // cursor page need not repeat the focal tweet or intermediate parents.
-      const existingReplies = new Map(state.replies.map((r) => [r.id, r]));
-      for (const r of (replies || [])) {
-        if (r.id === state.focalTweetId) continue;
-        const existing = existingReplies.get(r.id);
-        if (existing) Object.assign(existing, r);
-        else {
-          if (commentId !== state.focalTweetId) r._subThreadOf = commentId;
-          state.replies.push(r);
-          existingReplies.set(r.id, r);
-        }
-      }
+      mergeReplyModels(replies, unavailableIds, commentId !== state.focalTweetId ? commentId : null);
 
       // 如果 focal 自身数据有更新（如 counts），同步更新
       if (focal && state.tree?.byId?.has(commentId)) {
@@ -4112,6 +4150,7 @@
         state.threadCursors.clear();
         state.threadPages.clear();
         state.inlinePages.clear();
+        state.unavailableReplyIds.clear();
         state.openGatedThreads.clear();
         state.consumedCursors.clear();
         state.loadingThreadIds.clear();
@@ -4130,34 +4169,19 @@
       try {
         const json = await requestPage("READ_THREAD", { tweetId });
         if (generation !== state.threadGeneration) return;
-        // Native quick tools cover the current thread without abandoning it.
-        const hasNativeOverlay = nativeReplyOpening || document.querySelector('#layers [role="dialog"]');
-        if (Core.postIdFromUrl(location.href) !== tweetId && !(state.open && state.focalTweetId === tweetId && hasNativeOverlay)) return;
+        // A retained panel still owns its request after navigating away or
+        // unpinning. Closing or switching it already invalidates generation.
+        if (Core.postIdFromUrl(location.href) !== tweetId && !(state.open && state.focalTweetId === tweetId)) return;
         if (userClosedTweetId === tweetId) return;
 
-        const { focal, replies, cursor, pagination } = Core.parseTweetDetail(json, tweetId);
+        const { focal, replies, cursor, pagination, unavailableIds } = Core.parseTweetDetail(json, tweetId);
 
         // 如果完全没有下一级回复，绝对不弹出右侧抽屉，保持完全静默
-        if ((!replies || replies.length === 0) && !cursor && !pagination.gated && !pagination.inlineCursors.length) {
+        const hasThreadContent = replies.length > 0 || cursor || pagination.gated || pagination.inlineCursors.length > 0;
+        const keepEmptyPanel = state.open && state.focalTweetId === tweetId && isPinProtectionActive();
+        if (!hasThreadContent && !keepEmptyPanel) {
           if (state.open && state.focalTweetId === tweetId) {
-            if (isPinProtectionActive()) {
-              syncPinnedFocalHighlight();
-              state.focalModel = focal;
-              state.replies = [];
-              state.tree = Core.buildConversationTree([], tweetId);
-              state.expandedThreadIds.clear();
-              state.loadedThreadIds.clear();
-              state.loadingThreadIds.clear();
-              state.threadCursors.clear();
-              state.consumedCursors.clear();
-              state.activeView = "root";
-              state.replyTarget = null;
-              state.loading = false;
-              state.error = "";
-              renderDrawer();
-            } else {
-              closeDrawer();
-            }
+            closeDrawer();
           }
           return;
         }
@@ -4168,7 +4192,7 @@
           state.focalArticle.classList.remove("sidepeek-focal-active");
         }
         state.focalArticle = focalArticle;
-        state.focalArticle?.classList.add("sidepeek-focal-active");
+        if (hasThreadContent) state.focalArticle?.classList.add("sidepeek-focal-active");
 
         const wasOpenForTweet = state.open && state.focalTweetId === tweetId;
         if (!state.open) state.pinned = autoPinDefault;
@@ -4178,6 +4202,7 @@
         syncPinnedFocalHighlight();
         state.focalModel = focal;
         state.replies = replies;
+        state.unavailableReplyIds = new Set(unavailableIds);
         state.openGatedThreads.clear();
         state.tree = Core.buildConversationTree(visibleReplies(), tweetId);
         state.resetScrollOnRender = true;
