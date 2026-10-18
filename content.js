@@ -126,6 +126,7 @@
     error: "",
     isResizing: false,
     subReplyLimit: 1,
+    previewGeneration: 0,
     replyMode: "drawer",
     photoMode: "sidex",
     nativeReplyTransfer: null,
@@ -233,7 +234,7 @@
       state.photoMode = res.sidex_photo_mode === "native" ? "native" : "sidex";
       if (res.sidex_lang) overrideLocale = res.sidex_lang;
       if (res.sidex_sub_reply_limit !== undefined) {
-        state.subReplyLimit = Math.max(1, Number(res.sidex_sub_reply_limit) || 1);
+        state.subReplyLimit = res.sidex_sub_reply_limit === "all" ? "all" : Math.max(1, Number(res.sidex_sub_reply_limit) || 1);
       }
       if (res.sidex_reply_mode !== undefined) {
         state.replyMode = res.sidex_reply_mode === "native" ? "native" : "drawer";
@@ -290,7 +291,10 @@
         if (state.open) renderDrawer(true);
       }
       if (changes.sidex_sub_reply_limit !== undefined) {
-        state.subReplyLimit = Math.max(1, Number(changes.sidex_sub_reply_limit.newValue) || 1);
+        const value = changes.sidex_sub_reply_limit.newValue;
+        state.subReplyLimit = value === "all" ? "all" : Math.max(1, Number(value) || 1);
+        state.previewGeneration += 1;
+        state.expandedThreadIds.clear();
         if (state.open) {
           renderDrawer();
           if (state.subReplyLimit > 1) {
@@ -334,7 +338,8 @@
       overCharLimit: "字数超出限制",
       emptyReplies: "暂无评论，快来抢沙发吧~",
       noMoreReplies: "暂无更多子回复",
-      loadingReplies: "正在加载评论...",
+      loadingComments: "正在加载评论...",
+      loadingReplies: "正在加载回复...",
       loadMoreComments: "加载更多评论",
       loadMoreThreadReplies: "加载更多回复",
       retryBtn: "重试",
@@ -487,6 +492,7 @@
       overCharLimit: "Character limit exceeded",
       emptyReplies: "No replies yet. Be the first to reply!",
       noMoreReplies: "No more replies",
+      loadingComments: "Loading comments...",
       loadingReplies: "Loading replies...",
       loadMoreComments: "Load more comments",
       loadMoreThreadReplies: "Load more replies",
@@ -1373,7 +1379,7 @@
       body.innerHTML = `
         <div class="sidepeek-loading-box">
           <div class="sidepeek-spinner"></div>
-          <span>${t("loadingReplies")}</span>
+          <span>${t("loadingComments")}</span>
         </div>`;
       return;
     }
@@ -1441,7 +1447,7 @@
       }
 
       const authorChain = authorThreadIds();
-      const INLINE_LIMIT = state.subReplyLimit || 1; // 默认展示 1 条二级回复，可在插件设置中自定义
+      const INLINE_LIMIT = state.subReplyLimit === "all" ? Infinity : state.subReplyLimit || 1;
 
       for (const rootReply of roots) {
         appendSectionLabel(body, rootReply);
@@ -1569,6 +1575,7 @@
 
     body.dispatchEvent(new Event("scroll"));
     nativeLayers?.sync(root);
+    if (!state.loading && state.activeView === "root") queueMicrotask(prefetchSubRepliesForRoots);
   }
 
   function renderVerifiedBadge(author) {
@@ -1898,7 +1905,10 @@
     button.textContent = t("loadMoreThreadReplies");
     button.disabled = state.loadingThreadIds.has(model.id);
     button.addEventListener("click", () => fetchSubReplies(model.id, false, true));
-    container.appendChild(button);
+    const row = document.createElement("div");
+    row.className = "sidepeek-pagination";
+    row.appendChild(button);
+    container.appendChild(row);
   }
 
   function renderCommentNode(model, hasThreadLine = false, isChild = false) {
@@ -3813,16 +3823,14 @@
         row.prepend(status);
       }
       anchor.after(row);
-      if (!page.gateFor && !page.loading && !page.error && !page.paused && !page.stalled) {
-        observeReplyPage(row, body, () => state.inlinePages.get(key) === page, () => fetchInlineReplies(key));
-      }
     }
   }
 
-  async function fetchInlineReplies(key) {
+  async function fetchInlineReplies(key, expandOnSuccess = true) {
     const page = state.inlinePages.get(key);
     if (!page || page.loading || page.stalled || !state.open) return;
     const generation = state.threadGeneration;
+    const previewGeneration = state.previewGeneration;
     page.loading = true;
     renderDrawer();
     try {
@@ -3831,10 +3839,11 @@
       const section = page.gateFor ? state.threadPages.get(page.gateFor)?.sectionLabel || foldedText() : "";
       const { focal, replies, pagination, unavailableIds } = Core.parseTweetDetail(json, page.requestTweetId, [state.focalModel, ...state.replies], section);
       const { added } = mergeReplyModels(replies, unavailableIds);
+      state.loadedThreadIds.add(page.branchRootId);
       if (focal?.id === state.focalTweetId) state.focalModel = focal;
       state.tree = Core.buildConversationTree(visibleReplies(), state.focalTweetId);
       for (const root of state.tree.rootReplies) {
-        if (root.id === page.branchRootId || state.tree.getSubtree(root.id).some(reply => reply.id === page.branchRootId)) {
+        if (expandOnSuccess && previewGeneration === state.previewGeneration && (root.id === page.branchRootId || state.tree.getSubtree(root.id).some(reply => reply.id === page.branchRootId))) {
           state.expandedThreadIds.add(root.id);
         }
       }
@@ -3881,7 +3890,8 @@
       button.type = "button";
       button.className = "sidepeek-expand-btn sidepeek-load-more-btn";
       button.disabled = busy;
-      button.textContent = busy ? t("loadingReplies") : t(tweetId === state.focalTweetId ? "loadMoreComments" : "loadMoreThreadReplies");
+      button.textContent = busy ? t(tweetId === state.focalTweetId ? "loadingComments" : "loadingReplies")
+        : t(tweetId === state.focalTweetId ? "loadMoreComments" : "loadMoreThreadReplies");
       button.addEventListener("click", () => fetchSubReplies(tweetId, false, true, cursor));
       row.appendChild(button);
       if (page.error || page.paused) {
@@ -3955,6 +3965,7 @@
 
   async function fetchSubReplies(commentId, isSilent = false, expandOnSuccess = true, cursor = null) {
     const generation = state.threadGeneration;
+    const previewGeneration = state.previewGeneration;
     if (!commentId) return;
     if (state.loadingThreadIds.has(commentId)) {
       if (expandOnSuccess && commentId !== state.focalTweetId) state.expandedThreadIds.add(commentId);
@@ -3998,7 +4009,7 @@
       // 重新构建对话树结构
       state.tree = Core.buildConversationTree(visibleReplies(), state.focalTweetId);
       state.loadedThreadIds.add(commentId);
-      if (expandOnSuccess && commentId !== state.focalTweetId) {
+      if (expandOnSuccess && previewGeneration === state.previewGeneration && commentId !== state.focalTweetId) {
         state.expandedThreadIds.add(commentId);
       }
     } catch (err) {
@@ -4033,28 +4044,46 @@
     await fetchSubReplies(rootReplyId, /* isSilent */ false, /* expandOnSuccess */ true);
   }
 
+  let previewPrefetchGeneration = null;
+
   async function prefetchSubRepliesForRoots() {
-    if (!state.open || !state.tree) return;
-    const limit = state.subReplyLimit || 1;
-    // 如果默认仅展示 1 条，X 原生数据已附带首条回复，无需在后台额外预取，彻底杜绝首次加载后的二次闪烁/重绘
-    if (limit <= 1) return;
-
-    const currentFocal = state.focalTweetId;
     const generation = state.threadGeneration;
-    const roots = state.tree.rootReplies || [];
-    const candidates = roots.filter((r) => {
-      const total = r.counts?.replies || 0;
-      const current = state.tree.childrenMap.get(r.id)?.length || 0;
-      return total > 0 && current < total && current < limit &&
-             !state.loadedThreadIds.has(r.id) &&
-             !state.loadingThreadIds.has(r.id);
-    }).slice(0, 3);
-
-    for (const r of candidates) {
-      if (!state.open || state.focalTweetId !== currentFocal || generation !== state.threadGeneration) break;
-      try {
-        await fetchSubReplies(r.id, /* isSilent */ true, /* expandOnSuccess */ false);
-      } catch {}
+    if (previewPrefetchGeneration === generation || !state.open || !state.tree || state.loading) return;
+    previewPrefetchGeneration = generation;
+    try {
+      while (state.open && state.tree && generation === state.threadGeneration) {
+        // Preview completion is bounded by the selected count, independent of
+        // the switch for automatic pagination at the end of the whole list.
+        const limit = state.subReplyLimit === "all" ? Infinity : state.subReplyLimit || 1;
+        let load = null;
+        for (const root of state.tree.rootReplies) {
+          const children = state.tree.getSubtree(root.id);
+          if (children.length >= limit || root._gateFor) continue;
+          const branch = [root, ...children];
+          const ids = new Set(branch.map(reply => reply.id));
+          const inline = [...state.inlinePages].filter(([, page]) => ids.has(page.branchRootId) && !page.gateFor);
+          if (inline.length) {
+            const next = inline.find(([, page]) => !page.loading && !page.error && !page.paused && !page.stalled);
+            if (next) load = () => fetchInlineReplies(next[0], false);
+          } else {
+            for (const reply of branch) {
+              const page = state.threadPages.get(reply.id) || {};
+              if (reply._gateFor || page.error || page.paused || page.stalled || state.loadingThreadIds.has(reply.id)) continue;
+              const cursor = state.threadCursors.get(reply.id);
+              const missing = (reply.counts?.replies || 0) > (state.tree.childrenMap.get(reply.id)?.length || 0);
+              if (cursor || (missing && !state.loadedThreadIds.has(reply.id))) {
+                load = () => fetchSubReplies(reply.id, true, false, cursor);
+                break;
+              }
+            }
+          }
+          if (load) break;
+        }
+        if (!load) break;
+        await load();
+      }
+    } finally {
+      if (previewPrefetchGeneration === generation) previewPrefetchGeneration = null;
     }
   }
 

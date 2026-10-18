@@ -5,7 +5,10 @@ const { createPage, tweet, tick } = require('./helpers.cjs');
 // Minimal public TweetDetail shapes observed on williamlong/status/2110964469480526016.
 // In particular, X can retain a Bottom cursor alongside a Bottom termination.
 const entry = result => ({ content: { itemContent: { tweet_results: { result } } } });
-function page({ replies = [tweet('101', '100')], cursor, gate, label, end, focal = true, total = 3 } = {}) {
+function leaf(id, parent) {
+  const result = tweet(id, parent); result.legacy.reply_count = 0; return result;
+}
+function page({ replies = [leaf('101', '100')], cursor, gate, label, end, focal = true, total = 3 } = {}) {
   const root = tweet('100'); root.legacy.reply_count = total;
   return { data: { threaded_conversation_with_injections_v2: { instructions: [
     { type: 'TimelineAddEntries', entries: [
@@ -37,10 +40,10 @@ for (const focalId of ['100', '200']) {
     const parentId = String(Number(focalId) + 1);
     const childId = String(Number(focalId) + 2);
     const root = tweet(focalId, focalId === '200' ? '99' : '');
-    const parent = tweet(parentId, focalId); parent.legacy.reply_count = 1;
+    const parent = tweet(parentId, focalId); parent.legacy.reply_count = 2;
     const child = tweet(childId, parentId);
     const p = createPage({ request: m => page({ focal: false, end: 'Bottom',
-      replies: m.tweetId === focalId ? [root, parent] : [parent, child] }) });
+      replies: m.tweetId === focalId ? [root, parent, leaf(String(Number(childId) + 1), parentId)] : [parent, child] }) });
     t.after(() => p.w.close()); await tick();
     p.clickPost(focalId === '100' ? 0 : 1); await tick();
     p.query('.sidepeek-fetch-replies-btn').click(); await tick();
@@ -58,7 +61,7 @@ for (const focalId of ['100', '200']) {
 
 test('inline completion stays hidden while the outer list has more pages, and branch cursors remain actionable', async t => {
   const parent = tweet('101', '100'); parent.legacy.reply_count = 2;
-  const p = await open(t, m => m.tweetId === '100' ? page({ replies: [parent], cursor: 'outer-next' })
+  const p = await open(t, m => m.tweetId === '100' ? page({ replies: [parent, leaf('103', '101')], cursor: 'outer-next' })
     : page({ focal: false, replies: [parent, tweet('102', '101')],
       ...(m.cursor ? { end: 'Bottom' } : { cursor: 'branch-next' }) }));
   p.query('.sidepeek-fetch-replies-btn').click(); await tick();
@@ -161,7 +164,7 @@ test('ordinary pages finish before a retained spam gate and spam never auto-load
 
 for (const hasGateCursor of [true, false]) {
   test('preloaded folded replies cannot replace ordinary pagination, with gate cursor ' + hasGateCursor, async t => {
-    const initial = page({ replies: [tweet('101', '100'), tweet('102', '100', 'FOLDED_BODY')],
+    const initial = page({ replies: [leaf('101', '100'), tweet('102', '100', 'FOLDED_BODY')],
       cursor: 'normal-next', ...(hasGateCursor ? { gate: 'spam' } : {}) });
     initial.data.threaded_conversation_with_injections_v2.instructions[0].entries.splice(2, 0,
       { content: { itemContent: { itemType: 'TimelineLabel', text: 'Probable spam' } } });
@@ -229,7 +232,7 @@ test('late observer callbacks cannot load another page after switching posts', a
 test('subthread prefetch retains its own folded gate without fetching or exposing it', async t => {
   const child = tweet('102', '101', 'FOLDED_CHILD'); child.legacy.conversation_id_str = '100';
   const p = createPage({ settings: { sidex_sub_reply_limit: 3 }, request: m => {
-    if (m.tweetId === '100') return page();
+    if (m.tweetId === '100') return page({ replies: [tweet('101', '100')] });
     const parent = tweet('101', '100');
     return { data: { instructions: [{ type: 'TimelineAddEntries', entries: [entry(parent),
       { content: { itemContent: { itemType: 'TimelineLabel', text: 'Probable spam' } } }, entry(child)] }] } };

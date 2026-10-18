@@ -59,6 +59,8 @@
         external: "保留正文，隐藏 SideX 翻译按钮。请使用已有插件的划词或网页翻译。"
       },
       subReplyLimitLabel: "二级回复展示",
+      subReplyAllLabel: "自动展开全部回复",
+      subReplyAllHint: "自动补全并展开全部回复，不限制层级",
       resetLabel: "抽屉宽度",
       resetBtn: "恢复默认",
       resetDone: "已恢复！",
@@ -92,6 +94,8 @@
         external: "Keep post text and hide SideX translation buttons. Use your extension's selection or page translation."
       },
       subReplyLimitLabel: "Sub-reply Preview",
+      subReplyAllLabel: "Automatically expand all sub-replies",
+      subReplyAllHint: "Automatically load and expand all sub-replies without a depth limit",
       resetLabel: "Drawer Width",
       resetBtn: "Reset",
       resetDone: "Restored!",
@@ -141,6 +145,11 @@
     updatePhotoModeButtons();
 
     if (subReplyLimitLabel) subReplyLimitLabel.textContent = s.subReplyLimitLabel;
+    const allReplies = limitGroup?.querySelector('[data-limit="all"]');
+    if (allReplies) {
+      allReplies.setAttribute("aria-label", s.subReplyAllLabel);
+      allReplies.title = s.subReplyAllHint;
+    }
     resetLabel.textContent = s.resetLabel;
     resetBtnText.textContent = s.resetBtn;
     hintEsc.textContent = s.hintEsc;
@@ -159,7 +168,9 @@
   function updateLimitButtons(limit) {
     if (!limitGroup) return;
     limitGroup.querySelectorAll(".sidex-pill-btn").forEach((btn) => {
-      btn.classList.toggle("active", Number(btn.dataset.limit) === Number(limit));
+      const active = btn.dataset.limit === String(limit);
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-pressed", String(active));
     });
   }
 
@@ -205,7 +216,7 @@
     storage.get({ sidex_enabled: true, sidex_auto_load_replies: true, sidex_auto_expand_reply_text: false, sidex_lang: null, sidex_sub_reply_limit: 1, sidex_reply_mode: "drawer", sidex_photo_mode: "sidex", sidex_translation_provider: "x", sidex_auto_pin: false }, (res) => {
       isEnabled = res.sidex_enabled !== false;
       currentLang = res.sidex_lang || getSystemLang();
-      currentSubReplyLimit = Number(res.sidex_sub_reply_limit) || 1;
+      currentSubReplyLimit = res.sidex_sub_reply_limit === "all" ? "all" : Number(res.sidex_sub_reply_limit) || 1;
       currentReplyMode = res.sidex_reply_mode === "native" ? "native" : "drawer";
       currentPhotoMode = res.sidex_photo_mode === "native" ? "native" : "sidex";
       autoPinInput.checked = res.sidex_auto_pin === true;
@@ -288,7 +299,7 @@
     limitGroup.addEventListener("click", (e) => {
       const btn = e.target.closest(".sidex-pill-btn");
       if (!btn) return;
-      const limit = Number(btn.dataset.limit);
+      const limit = btn.dataset.limit === "all" ? "all" : Number(btn.dataset.limit);
       if (limit && limit !== currentSubReplyLimit) {
         currentSubReplyLimit = limit;
         updateLimitButtons(currentSubReplyLimit);

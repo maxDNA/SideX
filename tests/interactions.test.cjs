@@ -17,7 +17,12 @@ test('current and legacy profile shapes preserve zero and unknown values', () =>
 });
 
 test('translation, expanded text and extension-inserted DOM survive reply expansion; switching posts resets scroll', async t => {
-  const p = createPage({ request: m => m.type === 'TRANSLATE_TWEET' ? { translation: '完整译文', provider: 'X / Grok', sourceLanguage: 'en' } : thread(m.tweetId) });
+  const p = createPage({ request: m => {
+    if (m.type === 'TRANSLATE_TWEET') return { translation: '完整译文', provider: 'X / Grok', sourceLanguage: 'en' };
+    const json = thread(m.tweetId);
+    if (m.tweetId === '100') json.data.push({ tweet_results: { result: tweet('126', '101') } });
+    return json;
+  } });
   t.after(() => p.w.close());
   await tick(); p.clickPost(0); await tick();
   const item = p.query('.sidepeek-comment-item');

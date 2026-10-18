@@ -24,6 +24,47 @@ function chain(length = 8, author = 'owner', start = 101, parent = '100') {
   return Array.from({ length }, (_, i) => post(String(start + i), i ? String(start + i - 1) : parent, author, `Continuation ${i}`, i < length - 1 ? 1 : 0));
 }
 
+for (const limit of [1, 2, 3, 5, 'all']) {
+  test(`preview ${limit} fills missing data and applies the selected expansion limit`, async t => {
+    const root = post('101', '100', 'guest', 'Root', 1);
+    const p = await open(t, [], { sidex_sub_reply_limit: limit, sidex_auto_load_replies: false },
+      m => m.tweetId === '100' ? response([post('100'), root])
+        : response([root, ...chain(8, 'guest', 102, '101')]));
+    await tick();
+    assert.equal(p.w.document.querySelectorAll('.sidepeek-child-comment').length, limit === 'all' ? 8 : limit);
+    assert.equal(p.calls.filter(m => m.tweetId === '101').length, 1);
+    if (limit === 'all') assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn'), null);
+    else assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, `展开另外 ${8 - limit} 条已加载回复`);
+  });
+}
+
+test('finite preview fills deep descendants for every group, including later outer pages', async t => {
+  const roots = [101, 201, 301, 401].flatMap(id => [post(String(id), '100', 'guest', 'Root', 1), post(String(id + 1), String(id), 'guest', 'Child', 1)]);
+  const p = await open(t, [], { sidex_sub_reply_limit: 3, sidex_auto_load_replies: false }, m => {
+    if (m.cursor === 'outer') return response([post('501', '100', 'guest', 'Later root', 1), post('502', '501', 'guest', 'Child', 1)]);
+    if (m.tweetId === '100') return response([post('100'), ...roots], 'outer');
+    const id = Number(m.tweetId);
+    return response([post(String(id), String(id - 1), 'guest', 'Child', 1), ...chain(5, 'guest', id + 1, String(id))]);
+  });
+  await tick();
+  for (const group of p.w.document.querySelectorAll('.sidepeek-thread-group')) assert.equal(group.querySelectorAll('.sidepeek-child-comment').length, 3);
+  assert.equal(p.calls.filter(m => m.tweetId !== '100').length, 4);
+  p.query('.sidepeek-body > .sidepeek-pagination .sidepeek-load-more-btn').click(); await tick(); await tick();
+  const later = p.query('[data-id="501"]').parentElement;
+  assert.equal(later.querySelectorAll('.sidepeek-child-comment').length, 3);
+  assert.equal(p.calls.filter(m => m.tweetId === '502').length, 1);
+});
+
+test('changing preview settings reapplies the finite cap after manual expansion', async t => {
+  const p = await open(t, [post('100'), ...chain(8, 'guest')]);
+  p.query('.sidepeek-thread-group .sidepeek-expand-btn').click(); await tick();
+  p.change({ sidex_sub_reply_limit: { newValue: 'all' } }); await tick();
+  for (const limit of [5, 3, 2, 1]) {
+    p.change({ sidex_sub_reply_limit: { newValue: limit } }); await tick();
+    assert.equal(p.w.document.querySelectorAll('.sidepeek-child-comment').length, limit);
+  }
+});
+
 test('the focal author continuation is visible beyond the preview limit without extra requests', async t => {
   const p = await open(t, [post('100', '', 'owner', 'Main', 1), ...chain()]);
   for (let id = 101; id <= 108; id++) assert.ok(p.query(`[data-id="${id}"]`));
@@ -67,11 +108,111 @@ test('pagination extends the author chain while retaining manual text expansion'
 });
 
 test('unknown child counts use an unnumbered fetch button rather than inventing hidden loaded replies', async t => {
-  const p = await open(t, [post('100'), post('101', '100', 'guest', 'Reply', 20)]);
+  const p = await open(t, [post('100'), post('101', '100', 'guest', 'Reply', 20), post('102', '101', 'guest')]);
   const button = p.query('.sidepeek-fetch-replies-btn');
   assert.ok(button);
   assert.equal(button.textContent, '加载更多回复');
   assert.doesNotMatch(button.textContent, /20/);
+});
+
+test('unlimited preview shows every loaded depth and attempts to complete missing data', async t => {
+  const posts = [post('100'), ...chain(8, 'guest'), post('120', '100', 'guest2', 'Unloaded branch', 20)];
+  const p = await open(t, posts, { sidex_sub_reply_limit: 'all', sidex_auto_load_replies: false });
+  const ids = () => [...p.w.document.querySelectorAll('.sidepeek-comment-item')].map(n => n.dataset.id);
+  assert.deepEqual(ids(), ['101', '102', '103', '104', '105', '106', '107', '108', '120']);
+  assert.equal(p.calls.filter(m => m.tweetId === '120').length, 1, 'unlimited preview attempts the missing branch');
+  const body = p.query('.sidepeek-body'); body.scrollTop = 180;
+  const textarea = p.query('.sidepeek-footer-textarea');
+  textarea.value = 'Keep draft'; textarea.dispatchEvent(new p.w.Event('input', { bubbles: true }));
+  p.change({ sidex_sub_reply_limit: { newValue: 1 } }); await tick();
+  assert.deepEqual(ids(), ['101', '102', '120']);
+  assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, '展开另外 6 条已加载回复');
+  assert.equal(p.calls.length, 2, 'the finite preview attempts to complete the missing child');
+  p.change({ sidex_sub_reply_limit: { newValue: 'all' } }); await tick();
+  assert.deepEqual(ids(), ['101', '102', '103', '104', '105', '106', '107', '108', '120']);
+  assert.equal(p.query('.sidepeek-footer-textarea').value, 'Keep draft');
+  assert.equal(body.scrollTop, 180);
+  assert.equal(p.calls.length, 2, 'returning to unlimited does not repeat a completed request');
+});
+
+test('the popup persists unlimited preview, restores all supported options and localizes its meaning', t => {
+  const prefs = { sidex_lang: 'zh' };
+  const popup = () => {
+    const dom = new JSDOM(source('popup.html'), { runScripts: 'outside-only' });
+    t.after(() => dom.window.close());
+    dom.window.chrome = { storage: { sync: {
+      get(defaults, cb) { cb({ ...defaults, ...prefs }); },
+      set(values) { Object.assign(prefs, values); }
+    } } };
+    dom.window.eval(source('popup.js'));
+    return dom.window.document;
+  };
+  const doc = popup();
+  assert.equal(doc.querySelector('#sidex-limit-group .active').dataset.limit, '1');
+  const all = doc.querySelector('[data-limit="all"]');
+  assert.ok(all, 'the preview options include unlimited');
+  assert.equal(all.textContent, '∞');
+  all.click();
+  assert.equal(prefs.sidex_sub_reply_limit, 'all');
+  assert.equal(all.getAttribute('aria-pressed'), 'true');
+  assert.match(all.getAttribute('title'), /自动补全/);
+  doc.querySelector('[data-lang="en"]').click();
+  assert.equal(all.getAttribute('aria-label'), 'Automatically expand all sub-replies');
+  assert.match(all.getAttribute('title'), /automatically load/i);
+  assert.equal(doc.querySelector('#txt-auto-load-desc').textContent, 'Load more when you reach the bottom');
+  for (const value of ['all', 1, 2, 3, 5]) {
+    prefs.sidex_sub_reply_limit = value;
+    const restored = popup();
+    assert.equal(restored.querySelector('#sidex-limit-group .active').dataset.limit, String(value));
+  }
+  doc.querySelector('[data-limit="3"]').click();
+  assert.equal(prefs.sidex_sub_reply_limit, 3);
+  assert.equal(all.getAttribute('aria-pressed'), 'false');
+});
+
+test('unlimited preview keeps folded and unavailable descendants protected', async t => {
+  const blocked = { __typename: 'TweetWithVisibilityResults', tweet: post('104', '102', 'guest', 'UNAVAILABLE_BODY'),
+    tweetInterstitial: { text: { text: 'Unavailable' } } };
+  const posts = [post('100'), ...chain(3, 'guest'), blocked];
+  const json = response(posts);
+  json.data.instructions[0].entries.push(
+    { content: { itemContent: { itemType: 'TimelineLabel', text: 'Probable spam' } } },
+    entry(post('105', '102', 'guest', 'FOLDED_BODY')));
+  const p = await open(t, [], { sidex_sub_reply_limit: 'all' }, () => json);
+  assert.ok(p.query('[data-id="103"]'));
+  assert.doesNotMatch(p.query('.sidepeek-body').textContent, /FOLDED_BODY|UNAVAILABLE_BODY/);
+  p.query('.sidepeek-gated-btn').click(); await tick();
+  assert.ok(p.query('[data-id="105"]'));
+  assert.doesNotMatch(p.query('.sidepeek-body').textContent, /UNAVAILABLE_BODY/);
+  assert.equal(p.calls.length, 1, 'revealing cached folded replies does not request more data');
+});
+
+test('unlimited preview keeps all loaded descendants visible beyond the fifth outer page and after setting changes', async t => {
+  const pageCount = 8;
+  const p = await open(t, [], { sidex_sub_reply_limit: 'all', sidex_auto_load_replies: false }, m => {
+    assert.equal(m.tweetId, '100', 'unlimited display never fetches a child thread');
+    const page = m.cursor ? Number(m.cursor.slice(5)) : 0;
+    const root = 1001 + page * 100;
+    return response([post('100'), post(String(root), '100', 'guest', 'Root', 1), ...chain(8, 'guest', root + 1, String(root))],
+      page + 1 < pageCount ? `page-${page + 1}` : null);
+  });
+  const groups = () => [...p.w.document.querySelectorAll('.sidepeek-thread-group')];
+  for (let page = 0; page < pageCount; page++) {
+    assert.equal(groups().length, page + 1);
+    for (const group of groups()) {
+      assert.equal(group.querySelectorAll('.sidepeek-child-comment').length, 8);
+      assert.equal(group.querySelector('.sidepeek-expand-btn'), null, 'no loaded descendants remain behind an expansion button');
+    }
+    if (page + 1 < pageCount) {
+      p.query('.sidepeek-body > .sidepeek-pagination .sidepeek-load-more-btn').click(); await tick();
+    }
+  }
+  assert.equal(p.calls.length, pageCount);
+  p.change({ sidex_sub_reply_limit: { newValue: 5 } }); await tick();
+  for (const group of groups()) assert.equal(group.querySelectorAll('.sidepeek-child-comment').length, 5);
+  p.change({ sidex_sub_reply_limit: { newValue: 'all' } }); await tick();
+  for (const group of groups()) assert.equal(group.querySelectorAll('.sidepeek-child-comment').length, 8);
+  assert.equal(p.calls.length, pageCount, 'switching display settings adds no requests for already loaded descendants');
 });
 
 test('the default-off text option updates cached comments immediately and preserves manual expansion and drafts', async t => {

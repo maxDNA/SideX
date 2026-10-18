@@ -284,6 +284,11 @@ input:checked + .sidex-toggle-slider:before {
   color: var(--sidex-text);
 }
 
+.sidex-pill-btn[data-limit="all"] {
+  font-size: 18px;
+  line-height: 13px;
+}
+
 .sidex-pill-btn.active {
   background: var(--sidex-primary);
   color: #ffffff;

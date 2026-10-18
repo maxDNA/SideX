@@ -134,9 +134,9 @@ test('failed page loads can retry and stale pages never leak into a newer post',
 });
 
 test('expanding a reply supports its next page without moving siblings into the branch', async t => {
-  const values = [tweet('100'), tweet('101', '100'), tweet('110', '100')];
+  const values = [tweet('100'), tweet('101', '100'), tweet('110', '100'), tweet('105', '101')];
   values[1].legacy.reply_count = 4;
-  const p = createPage({ request: m => {
+  const p = createPage({ settings: { sidex_sub_reply_limit: 1 }, request: m => {
     if (m.tweetId === '100') return detail(values);
     const child = tweet(m.cursor ? '103' : '102', '101'); child.legacy.conversation_id_str = '100';
     return detail(m.cursor ? [child] : [...values, child], m.cursor ? null : 'child-next');

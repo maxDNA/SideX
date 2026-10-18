@@ -37,6 +37,119 @@ function observeNative(p, json) {
       payload: { sidepeekObservedThreads: [{ requestTweetId: '100', json }] } } }));
 }
 
+for (const lang of ['zh', 'en']) {
+  test(`internal and outer pagination use distinct loading labels in ${lang}`, async t => {
+    let finishInner;
+    const p = await open(t, m => m.cursor === 'inner' ? new Promise(resolve => { finishInner = resolve; })
+      : m.cursor === 'outer' ? new Promise(() => {})
+        : detail([moduleEntry('101', [tweet('101', '100'), tweet('102', '101')], 'inner')], { bottom: 'outer', end: false }),
+      { sidex_lang: lang, sidex_auto_load_replies: false });
+    p.query('.sidepeek-inline-load-more-btn').click(); await tick();
+    assert.equal(p.query('.sidepeek-inline-load-more-btn').textContent, lang === 'zh' ? '正在加载回复...' : 'Loading replies...');
+    finishInner(detail([moduleEntry('101', [tweet('103', '102')])], { posts: [] })); await tick();
+    p.query('.sidepeek-body > .sidepeek-pagination .sidepeek-load-more-btn').click(); await tick();
+    assert.equal(p.query('.sidepeek-body > .sidepeek-pagination .sidepeek-load-more-btn').textContent,
+      lang === 'zh' ? '正在加载评论...' : 'Loading comments...');
+  });
+}
+
+test('finite preview consumes an internal cursor only to fill the cap without expanding the group', async t => {
+  const posts = Array.from({ length: 9 }, (_, i) => tweet(String(101 + i), String(100 + i)));
+  for (const p of posts) p.core.user_results.result.rest_id = 'guest';
+  const p = await open(t, m => m.cursor ? detail([moduleEntry('101', posts.slice(2), 'remaining')])
+    : detail([moduleEntry('101', posts.slice(0, 2), 'first')]), { sidex_sub_reply_limit: 5, sidex_auto_load_replies: false });
+  await tick();
+  assert.deepEqual(p.calls.filter(m => m.cursor).map(m => m.cursor), ['first']);
+  assert.equal(p.w.document.querySelectorAll('.sidepeek-child-comment').length, 5);
+  assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, '展开另外 3 条已加载回复');
+});
+
+test('finite preview follows several pages and stops once the selected count is loaded', async t => {
+  const posts = Array.from({ length: 7 }, (_, i) => tweet(String(101 + i), String(100 + i)));
+  for (const p of posts) p.core.user_results.result.rest_id = 'guest';
+  const p = await open(t, m => m.cursor === 'a' ? detail([moduleEntry('101', posts.slice(2, 4), 'b')])
+    : m.cursor === 'b' ? detail([moduleEntry('101', posts.slice(4, 6), 'c')])
+      : detail([moduleEntry('101', posts.slice(0, 2), 'a')]), { sidex_sub_reply_limit: 5 });
+  await tick();
+  assert.deepEqual(p.calls.filter(m => m.cursor).map(m => m.cursor), ['a', 'b']);
+  assert.equal(p.w.document.querySelectorAll('.sidepeek-child-comment').length, 5);
+  assert.ok(p.query('.sidepeek-inline-load-more-btn'), 'remaining data stays manual after the cap');
+});
+
+test('unlimited preview automatically follows every internal page independently of outer auto-loading', async t => {
+  const posts = Array.from({ length: 10 }, (_, i) => tweet(String(101 + i), String(100 + i)));
+  for (const post of posts) post.core.user_results.result.rest_id = 'guest';
+  const p = await open(t, m => !m.cursor ? detail([moduleEntry('101', posts.slice(0, 2), 'a')])
+    : m.cursor === 'a' ? detail([moduleEntry('101', posts.slice(2, 5), 'b')])
+      : detail([moduleEntry('101', posts.slice(5))]), { sidex_sub_reply_limit: 'all', sidex_auto_load_replies: false });
+  await tick(); await tick();
+  assert.deepEqual(p.calls.filter(m => m.cursor).map(m => m.cursor), ['a', 'b']);
+  assert.equal(p.w.document.querySelectorAll('.sidepeek-child-comment').length, 9);
+  assert.equal(p.query('.sidepeek-inline-load-more-btn'), null);
+  p.change({ sidex_sub_reply_limit: { newValue: 3 } }); await tick();
+  assert.equal(p.w.document.querySelectorAll('.sidepeek-child-comment').length, 3);
+  assert.equal(p.calls.length, 3);
+});
+
+test('switching from unlimited to a finite cap stops further internal pages after an in-flight response', async t => {
+  let finish;
+  const posts = [tweet('101', '100'), tweet('102', '101')];
+  for (const post of posts) post.core.user_results.result.rest_id = 'guest';
+  const p = await open(t, m => m.cursor ? new Promise(resolve => { finish = resolve; })
+    : detail([moduleEntry('101', posts, 'a')]), { sidex_sub_reply_limit: 'all' });
+  assert.equal(typeof finish, 'function');
+  p.change({ sidex_sub_reply_limit: { newValue: 1 } }); await tick();
+  finish(detail([moduleEntry('101', [tweet('103', '102')], 'b')])); await tick(); await tick();
+  assert.equal(p.w.document.querySelectorAll('.sidepeek-child-comment').length, 1);
+  assert.deepEqual(p.calls.filter(m => m.cursor).map(m => m.cursor), ['a']);
+});
+
+for (const limit of [5, 'all']) for (const outcome of ['error', 'empty', 'cycle']) {
+  test(`preview ${limit} stops on ${outcome} instead of repeatedly requesting internal data`, async t => {
+    const posts = [tweet('101', '100'), tweet('102', '101')];
+    for (const post of posts) post.core.user_results.result.rest_id = 'guest';
+    const p = await open(t, m => {
+      if (!m.cursor) return detail([moduleEntry('101', posts, 'a')]);
+      if (outcome === 'error') throw new Error('offline');
+      return detail([moduleEntry('101', [], outcome === 'cycle' ? 'a' : 'b')]);
+    }, { sidex_sub_reply_limit: limit });
+    await tick(); await tick();
+    assert.equal(p.calls.filter(m => m.cursor).length, 1);
+    assert.equal(p.w.document.querySelectorAll('.sidepeek-child-comment').length, 1);
+    assert.ok(p.query(outcome === 'error' ? '.sidepeek-pagination-error' : '.sidepeek-pagination-paused'));
+    p.change({ sidex_lang: { newValue: 'en' } }); await tick();
+    assert.equal(p.calls.filter(m => m.cursor).length, 1, 'rerendering does not resume a stopped page');
+  });
+}
+
+test('changing the preview cap while a manual load is pending prevents a stale full expansion', async t => {
+  let finish;
+  const posts = Array.from({ length: 9 }, (_, i) => tweet(String(101 + i), String(100 + i)));
+  for (const p of posts) p.core.user_results.result.rest_id = 'guest';
+  const p = await open(t, m => m.cursor ? new Promise(resolve => { finish = resolve; })
+    : detail([moduleEntry('101', posts.slice(0, 6), 'a')]), { sidex_sub_reply_limit: 5 });
+  p.query('.sidepeek-inline-load-more-btn').click(); await tick();
+  p.change({ sidex_sub_reply_limit: { newValue: 1 } }); await tick();
+  finish(detail([moduleEntry('101', posts.slice(6))])); await tick();
+  assert.equal(p.w.document.querySelectorAll('.sidepeek-child-comment').length, 1);
+  assert.equal(p.calls.filter(m => m.cursor).length, 1);
+});
+
+test('switching to unlimited during finite completion continues subsequent pages', async t => {
+  let finish;
+  const posts = [tweet('101', '100'), tweet('102', '101')];
+  for (const post of posts) post.core.user_results.result.rest_id = 'guest';
+  const p = await open(t, m => m.cursor === 'a' ? new Promise(resolve => { finish = resolve; })
+    : m.cursor === 'b' ? detail([moduleEntry('101', [tweet('104', '103')])])
+    : detail([moduleEntry('101', posts, 'a')]), { sidex_sub_reply_limit: 5 });
+  p.change({ sidex_sub_reply_limit: { newValue: 'all' } }); await tick();
+  finish(detail([moduleEntry('101', [tweet('103', '102')], 'b')])); await tick(); await tick();
+  assert.ok(p.query('[data-id="103"]'));
+  assert.equal(p.calls.filter(m => m.cursor).length, 2);
+  assert.ok(p.query('[data-id="104"]'));
+  assert.equal(p.query('.sidepeek-inline-load-more-btn'), null);
+});
+
 test('switching to a reply and returning preserves the current response order and cached descendants', async t => {
   let visitedChild = false;
   const current = detail([], { posts: [tweet('100'), tweet('101', '100', 'CURRENT_A'),
@@ -284,7 +397,7 @@ test('module append responses preserve other branches and outer pagination', asy
   const p = await open(t, m => m.cursor ? { data: { instructions: [{ type: 'TimelineAddToModule',
     moduleEntryId: 'conversationthread-101', moduleItems: [item(tweet('103', '102'))] }] } }
     : detail([moduleEntry('101', [tweet('101', '100'), tweet('102', '101')], 'a'),
-      moduleEntry('110', [tweet('110', '100')], 'b')], { bottom: 'outer', end: false }));
+      moduleEntry('110', [tweet('110', '100'), tweet('111', '110')], 'b')], { bottom: 'outer', end: false }), { sidex_sub_reply_limit: 1 });
   assert.equal(p.w.document.querySelectorAll('.sidepeek-inline-load-more-btn').length, 2);
   p.query('.sidepeek-inline-load-more-btn').click(); await tick();
   assert.ok(p.query('[data-id="103"]'));
@@ -337,7 +450,36 @@ function observers() {
   } }, all };
 }
 
-test('automatic outer and inline pages are single-flight and respond immediately to the preference', async t => {
+test('internal continuations stay manual and reopening restores the finite preview', async t => {
+  const io = observers();
+  const parent = tweet('101', '100');
+  parent.core.user_results.result.rest_id = 'guest';
+  const current = detail([moduleEntry('101', [parent, tweet('102', '101')], 'branch-next')]);
+  const continuation = detail([moduleEntry('101', [tweet('103', '102')])], { posts: [] });
+  let loaded = false;
+  const p = createPage({ settings: { sidex_sub_reply_limit: 1, sidex_auto_load_replies: true },
+    setupWindow(w) { io.setup(w); w.history.replaceState({}, '', '/reader/status/100'); },
+    request: m => {
+      if (m.cursor) { loaded = true; return continuation; }
+      return loaded ? { ...current, sidepeekObservedThreads: [
+        { requestTweetId: '100', cursor: 'branch-next', json: continuation }
+      ] } : current;
+    } });
+  t.after(() => p.w.close()); await tick();
+  const shown = () => [...p.w.document.querySelectorAll('.sidepeek-thread-group .sidepeek-comment-item')].map(n => n.dataset.id);
+  assert.deepEqual(shown(), ['101', '102']);
+  io.fire(); await tick();
+  assert.equal(p.calls.filter(m => m.cursor).length, 0, 'internal continuations never load on intersection');
+  p.query('.sidepeek-inline-load-more-btn').click(); await tick();
+  assert.deepEqual(shown(), ['101', '102', '103']);
+  p.query('.sidepeek-btn-close').click(); p.clickPost(0); await tick();
+  assert.deepEqual(shown(), ['101', '102']);
+  assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, '展开另外 1 条已加载回复');
+  io.fire(); await tick();
+  assert.equal(p.calls.filter(m => m.cursor).length, 1, 'reopening retains the cache without automatically fetching it again');
+});
+
+test('only outer pages load automatically, remain single-flight and respond immediately to the preference', async t => {
   const io = observers(); let resolve;
   const p = await open(t, m => m.cursor ? new Promise(r => { resolve = r; })
     : detail([moduleEntry('101', [tweet('101', '100'), tweet('102', '101')], 'a')], { bottom: 'outer', end: false }),
@@ -345,6 +487,7 @@ test('automatic outer and inline pages are single-flight and respond immediately
   io.fire(); await tick(); assert.equal(p.calls.length, 1);
   p.change({ sidex_auto_load_replies: { newValue: true } }); await tick();
   io.fire(); io.fire(); await tick(); assert.equal(p.calls.length, 2);
+  assert.equal(p.calls[1].cursor, 'outer', 'the visible inline cursor is not consumed automatically');
   p.change({ sidex_auto_load_replies: { newValue: false } });
   resolve(detail([], { posts: [] })); await tick();
   io.fire(); await tick(); assert.equal(p.calls.length, 2);
@@ -353,21 +496,21 @@ test('automatic outer and inline pages are single-flight and respond immediately
   assert.equal(p.query('.sidepeek-pagination-end'), null);
 });
 
-test('inline automation only observes visible continuations and ignores late callbacks and responses', async t => {
+test('manual inline loading ignores responses arriving after switching posts', async t => {
   const io = observers(); let resolve;
   const p = await open(t, m => m.cursor ? new Promise(r => { resolve = r; })
     : m.tweetId === '200' ? detail([], { posts: [tweet('200')] }) : initial(), {}, io.setup);
-  const old = io.all.find(o => o.targets.length); assert.ok(old);
   io.fire(); await tick();
+  assert.equal(p.calls.length, 1);
+  p.query('.sidepeek-inline-load-more-btn').click(); await tick();
   p.clickPost(1); await tick();
-  old.callback([{ isIntersecting: true }]);
   resolve(detail([moduleEntry('101', [tweet('103', '102')])], { posts: [] })); await tick();
   assert.equal(p.query('[data-id="103"]'), null);
   assert.equal(p.query('.sidepeek-inline-load-more-btn'), null);
   assert.equal(p.calls.filter(m => m.cursor).length, 1);
 });
 
-test('a folded preview must be expanded before its inline continuation is observed', async t => {
+test('a folded preview must be expanded before its manual inline continuation is offered', async t => {
   const io = observers();
   const posts = [tweet('101', '100'), tweet('102', '101'), tweet('103', '102')];
   for (const post of posts) post.core.user_results.result.rest_id = 'other-author';
@@ -376,6 +519,25 @@ test('a folded preview must be expanded before its inline continuation is observ
   io.fire(); await tick(); assert.equal(p.calls.length, 1);
   p.query('.sidepeek-thread-group .sidepeek-expand-btn').click(); await tick();
   assert.ok(p.query('.sidepeek-inline-load-more-btn'));
+  io.fire(); await tick(); assert.equal(p.calls.length, 1, 'expanding a preview does not enable automatic internal requests');
+});
+
+test('unlimited preview reveals observed descendants while its automatic continuation is pending', async t => {
+  const io = observers();
+  let finish;
+  const parent = tweet('101', '100'); parent.core.user_results.result.rest_id = 'guest';
+  const p = await open(t, m => m.cursor
+    ? new Promise(resolve => { finish = resolve; })
+    : detail([moduleEntry('101', [parent, tweet('102', '101'), tweet('103', '102')], 'a')]),
+    { sidex_sub_reply_limit: 'all' }, io.setup);
+  assert.ok(p.query('[data-id="103"]'));
+  observeNative(p, detail([moduleEntry('101', [parent, tweet('102', '101'), tweet('103', '102'), tweet('104', '103')], 'a')]));
+  await tick(); assert.ok(p.query('[data-id="104"]'));
+  io.fire(); await tick(); assert.equal(p.calls.length, 2);
+  assert.ok(p.query('.sidepeek-inline-load-more-btn'));
+  finish(detail([moduleEntry('101', [tweet('105', '104')])], { posts: [] })); await tick();
+  assert.ok(p.query('[data-id="105"]'));
+  assert.equal(p.calls.filter(m => m.cursor).length, 1);
 });
 
 test('gated inline continuations are not exposed or fetched before explicit expansion', async t => {
