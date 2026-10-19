@@ -2658,7 +2658,7 @@ a.sidepeek-handle:hover { text-decoration: underline; }
   padding: 0;
 }
 
-.sidepeek-thread-continuation > :is(.sidepeek-expand-btn, .sidepeek-collapse-btn)::before {
+.sidepeek-thread-continuation > .sidepeek-expand-btn::before {
   content: "";
   position: absolute;
   left: 33px;
@@ -2668,7 +2668,7 @@ a.sidepeek-handle:hover { text-decoration: underline; }
   pointer-events: none;
 }
 
-.sidepeek-comment-item:has(+ .sidepeek-thread-continuation) .sidepeek-avatar-col::after {
+.sidepeek-comment-item:has(+ .sidepeek-thread-continuation > .sidepeek-expand-btn) .sidepeek-avatar-col::after {
   content: "";
   position: absolute;
   top: 40px;
