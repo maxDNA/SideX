@@ -13,6 +13,51 @@ const created = (id = '999', parent = '100', text = 'Published') => ({ data: {
   create_tweet: { tweet_results: { result: tweet(id, parent, text) } }
 } });
 
+test('reply context identifies the selected branch and clears when returning to the main post', async t => {
+  const p = createPage(); t.after(() => p.w.close());
+  await tick(); p.clickPost(0); await tick();
+  const context = p.query('.sidepeek-reply-context');
+  assert.equal(context.hidden, true);
+  p.query('[data-id="101"] .sidepeek-act-reply').click();
+  assert.equal(context.hidden, false);
+  assert.equal(context.dataset.id, '101');
+  assert.equal(context.querySelector('.sidepeek-footer-avatar').getAttribute('src'), 'https://pbs.twimg.com/test_200x200.png');
+  assert.match(context.querySelector('.sidepeek-reply-target-text').textContent, /@reader/);
+  assert.equal(p.query('.sidepeek-footer-textarea').placeholder, '发布你的回复');
+  const oldAvatar = context.querySelector('.sidepeek-footer-avatar');
+  assert.match(context.querySelector('.sidepeek-reply-context-text').textContent, /This is a long reply/);
+  p.query('[data-id="102"] .sidepeek-act-reply').click();
+  assert.equal(context.dataset.id, '102');
+  const currentAvatar = context.querySelector('.sidepeek-footer-avatar');
+  oldAvatar.dispatchEvent(new p.w.Event('error'));
+  assert.equal(context.querySelector('.sidepeek-footer-avatar'), currentAvatar, 'a stale image failure cannot replace the new target avatar');
+  currentAvatar.dispatchEvent(new p.w.Event('error'));
+  assert.ok(context.querySelector('.sidepeek-footer-avatar-default'));
+  assert.equal(context.querySelector('.sidepeek-reply-context-text').textContent, 'A thoughtful reply in English.');
+  p.query('.sidepeek-cancel-reply-target').click();
+  assert.equal(context.hidden, true);
+  assert.equal(context.querySelector('.sidepeek-reply-context-text').textContent, '');
+});
+
+test('reply context falls back without an avatar and refreshes across language changes and draft restoration', async t => {
+  const p = createPage({ request: () => ({ data: [tweet('100'), tweet('101', '100', 'Target without avatar', {
+    core: { user_results: { result: { core: { name: 'Reader', screen_name: 'reader' } } } }
+  })].map(result => ({ tweet_results: { result } })) }) });
+  t.after(() => p.w.close());
+  await tick(); p.clickPost(0); await tick();
+  p.query('[data-id="101"] .sidepeek-act-reply').click();
+  assert.ok(p.query('.sidepeek-reply-context-avatar .sidepeek-footer-avatar-default'));
+  input(p, 'Retained draft');
+  p.change({ sidex_lang: { newValue: 'en' } }); await tick();
+  assert.equal(p.query('.sidepeek-footer-textarea').placeholder, 'Post your reply');
+  assert.equal(p.query('.sidepeek-reply-context').dataset.id, '101');
+  assert.match(p.query('.sidepeek-reply-target-text').textContent, /Replying to @reader/);
+  p.query('.sidepeek-btn-close').click(); p.clickPost(0); await tick();
+  assert.equal(p.query('.sidepeek-reply-context').dataset.id, '101');
+  assert.equal(p.query('.sidepeek-footer-textarea').value, 'Retained draft');
+  assert.equal(p.query('.sidepeek-reply-context-text').textContent, 'Target without avatar');
+});
+
 test('text drafts are separate per post and reply target and survive reply mode changes', async t => {
   const p = createPage(); t.after(() => p.w.close());
   await tick(); p.clickPost(0); await tick(); input(p, 'Root draft');

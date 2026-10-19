@@ -324,6 +324,7 @@
       closeSidebar: "关闭侧栏",
       replyToAuthor: "回复 @{handle}... (按 Ctrl+Enter 发送)",
       replyToUser: "回复 @{handle}...",
+      replyInputPlaceholder: "发布你的回复",
       replyToWithPaste: "回复 @{handle}... (支持 Ctrl+V 粘贴图片)",
       ctrlEnterHint: "按 Ctrl+Enter 发送",
       replyBtn: "回复",
@@ -482,6 +483,7 @@
       closeSidebar: "Close sidebar",
       replyToAuthor: "Reply to @{handle}... (Ctrl+Enter to send)",
       replyToUser: "Reply to @{handle}...",
+      replyInputPlaceholder: "Post your reply",
       replyToWithPaste: "Reply to @{handle}... (Ctrl+V to paste images)",
       ctrlEnterHint: "Ctrl+Enter to send",
       replyBtn: "Reply",
@@ -1178,14 +1180,21 @@
         <div class="sidepeek-popover sidepeek-emoji-popover" style="display: none;"></div>
 
         <div class="sidepeek-footer-inner">
+          <div class="sidepeek-reply-context" hidden aria-live="polite">
+            <div class="sidepeek-reply-context-avatar"></div>
+            <div class="sidepeek-reply-context-body">
+              <div class="sidepeek-reply-context-author"></div>
+              <div class="sidepeek-reply-context-text"></div>
+              <div class="sidepeek-footer-reply-target" style="display:none;">
+                <span class="sidepeek-reply-target-text"></span>
+                <button type="button" class="sidepeek-cancel-reply-target" title="✕">✕</button>
+              </div>
+            </div>
+          </div>
           <div class="sidepeek-footer-avatar-wrap">
             ${userAvatar ? `<img src="${userAvatar}" class="sidepeek-footer-avatar" alt="" />` : `<div class="sidepeek-footer-avatar-default">${ICONS.user}</div>`}
           </div>
           <div class="sidepeek-footer-main">
-            <div class="sidepeek-footer-reply-target" style="display:none;">
-              <span class="sidepeek-reply-target-text"></span>
-              <button type="button" class="sidepeek-cancel-reply-target" title="✕">✕</button>
-            </div>
             <textarea class="sidepeek-footer-textarea" rows="1" placeholder="${replyPlaceholder}"></textarea>
             <div class="sidepeek-footer-preview-area"></div>
           </div>
@@ -1252,11 +1261,7 @@
     const isDrillDown = state.activeView && typeof state.activeView === "object" && state.activeView.type === "drilldown";
     const drillDownParent = isDrillDown ? state.tree?.byId.get(state.activeView.parentId) : null;
     const userAvatar = getCurrentUserAvatar();
-    const replyPlaceholder = state.replyTarget
-      ? t("replyToUser", { handle: state.replyTarget.author.handle })
-      : isDrillDown
-        ? t("replyToUser", { handle: drillDownParent?.author?.handle || (getLocale() === "zh" ? "此人" : "user") })
-        : t("replyToAuthor", { handle: state.focalModel?.author?.handle || (getLocale() === "zh" ? "楼主" : "author") });
+    const replyPlaceholder = t("replyInputPlaceholder");
 
     const isNativeMode = state.replyMode === "native";
 
@@ -1366,21 +1371,6 @@
       initFooterComposer(root, isDrillDown, drillDownParent);
     }
 
-    const replyTargetBox = root.querySelector(".sidepeek-footer-reply-target");
-    const replyTargetText = root.querySelector(".sidepeek-reply-target-text");
-    const textarea = root.querySelector(".sidepeek-footer-textarea");
-    if (replyTargetBox && replyTargetText) {
-      if (state.replyTarget) {
-        replyTargetBox.style.display = "flex";
-        replyTargetText.textContent = `${t("replyToTag")} @${state.replyTarget.author.handle}`;
-      } else {
-        replyTargetBox.style.display = "none";
-        replyTargetText.textContent = "";
-      }
-    }
-    if (textarea) {
-      textarea.placeholder = replyPlaceholder;
-    }
     root.querySelector(".sidepeek-footer-composer")?._sidepeekComposer?.syncTarget();
 
     const body = root.querySelector(".sidepeek-body");
@@ -2302,16 +2292,9 @@
     document.querySelector(".sidepeek-footer-composer")?._sidepeekComposer?.syncTarget();
     const footer = document.querySelector(".sidepeek-footer-composer");
     if (!footer) return;
-    const targetBox = footer.querySelector(".sidepeek-footer-reply-target");
-    const targetText = footer.querySelector(".sidepeek-reply-target-text");
     const textarea = footer.querySelector(".sidepeek-footer-textarea");
-    if (targetBox && targetText && textarea) {
-      targetText.textContent = `${t("replyToTag")} @${model.author.handle}`;
-      targetBox.style.display = "flex";
-      textarea.placeholder = t("replyToUser", { handle: model.author.handle });
-      textarea.focus();
-      textarea.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
+    textarea?.focus();
+    textarea?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
   function preserveReplyText() {
@@ -2341,9 +2324,7 @@
       state.replyTarget = null;
       if (replyTargetBox) replyTargetBox.style.display = "none";
       if (textarea) {
-        textarea.placeholder = isDrillDown
-          ? t("replyToUser", { handle: drillDownParent?.author?.handle || (getLocale() === "zh" ? "此人" : "user") })
-          : t("replyToAuthor", { handle: state.focalModel?.author?.handle || (getLocale() === "zh" ? "楼主" : "author") });
+        textarea.placeholder = t("replyInputPlaceholder");
         footer._sidepeekComposer?.syncTarget();
         textarea.focus();
       }
@@ -2743,6 +2724,33 @@
 
     footer._sidepeekComposer = {
       syncTarget() {
+        const context = footer.querySelector(".sidepeek-reply-context");
+        const target = state.replyTarget || (state.activeView?.type === "drilldown"
+          ? state.tree?.byId.get(state.activeView.parentId) : null);
+        textarea.placeholder = t("replyInputPlaceholder");
+        if (context) {
+          context.hidden = !target;
+          context.dataset.id = target?.id || "";
+          const avatar = context.querySelector(".sidepeek-reply-context-avatar");
+          avatar.replaceChildren();
+          if (target?.author?.avatar) {
+            const image = document.createElement("img");
+            image.src = target.author.avatar;
+            image.alt = "";
+            image.className = "sidepeek-footer-avatar";
+            image.addEventListener("error", () => {
+              if (image.parentNode === avatar) avatar.innerHTML = `<div class="sidepeek-footer-avatar-default">${ICONS.user}</div>`;
+            }, { once: true });
+            avatar.append(image);
+          } else if (target) {
+            avatar.innerHTML = `<div class="sidepeek-footer-avatar-default">${ICONS.user}</div>`;
+          }
+          context.querySelector(".sidepeek-reply-context-author").textContent = target
+            ? `${target.author?.name || target.author?.handle || ""} @${target.author?.handle || ""}` : "";
+          context.querySelector(".sidepeek-reply-context-text").textContent = target?.text || target?.url || "";
+          replyTargetBox.style.display = target ? "flex" : "none";
+          replyTargetText.textContent = target ? `${t("replyToTag")} @${target.author?.handle || ""}` : "";
+        }
         const nextKey = getDraftKey();
         if (draftKey === nextKey) return;
         draft.text = textarea.value;

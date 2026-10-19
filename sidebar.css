@@ -13,6 +13,7 @@
   --sp-like: #f91880;
   --sp-repost: #00ba7c;
   --sp-shadow: -4px 0 24px rgba(15, 20, 25, 0.08);
+  --sp-composer-shadow: 0 -5px 18px rgba(15, 20, 25, 0.09);
 }
 
 .sidepeek-theme-dark {
@@ -23,6 +24,7 @@
   --sp-thread-line: #333639;
   --sp-soft: #16181c;
   --sp-shadow: -4px 0 32px rgba(0, 0, 0, 0.6);
+  --sp-composer-shadow: 0 -5px 18px rgba(255, 255, 255, 0.07);
 }
 
 .sidepeek-theme-dim {
@@ -33,6 +35,7 @@
   --sp-thread-line: #425364;
   --sp-soft: #1e2732;
   --sp-shadow: -4px 0 32px rgba(0, 0, 0, 0.4);
+  --sp-composer-shadow: 0 -5px 18px rgba(0, 0, 0, 0.25);
 }
 
 /* Middle Timeline Focal Tweet Highlight */
@@ -1205,8 +1208,10 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
    Bottom Footer Composer (Reply to Focal / Main Post)
    ========================================================================== */
 .sidepeek-footer-composer {
+  container-type: inline-size;
   flex-shrink: 0;
-  border-top: 1px solid var(--sp-border);
+  border-radius: 16px 16px 0 0;
+  box-shadow: var(--sp-composer-shadow);
   background: var(--sp-bg);
   padding: 10px 14px;
   position: relative;
@@ -1224,7 +1229,38 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
   flex-shrink: 0;
   width: 32px;
   height: 32px;
-  margin-top: 2px;
+  margin-top: 0;
+}
+
+.sidepeek-reply-context {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+  position: relative;
+  padding-bottom: 8px;
+  min-width: 0;
+}
+.sidepeek-reply-context[hidden] { display: none; }
+.sidepeek-reply-context::before {
+  content: "";
+  position: absolute;
+  left: 15px;
+  top: 38px;
+  bottom: 0;
+  width: 2px;
+  background: var(--sp-thread-line);
+}
+.sidepeek-reply-context-avatar { width: 32px; height: 32px; }
+.sidepeek-reply-context-body { min-width: 0; }
+.sidepeek-reply-context .sidepeek-footer-reply-target { margin-top: 8px; }
+.sidepeek-reply-context-author { font-weight: 700; overflow-wrap: anywhere; }
+.sidepeek-reply-context-text {
+  margin-top: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .sidepeek-footer-avatar {
@@ -1295,12 +1331,13 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
 }
 
 .sidepeek-footer-textarea {
+  /* Align the text with reply bodies and keep the field within its column. */
   width: 100%;
   min-height: 36px;
   max-height: 120px;
-  padding: 8px 12px;
+  padding: 8px 7px;
   border: 1px solid var(--sp-border);
-  border-radius: 18px;
+  border-radius: 12px;
   background: var(--sp-soft);
   color: var(--sp-fg);
   font-family: inherit;
@@ -1308,13 +1345,12 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
   line-height: 1.4;
   resize: none;
   outline: none;
-  transition: border-color 0.15s, background 0.15s, border-radius 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .sidepeek-footer-textarea:focus {
   border-color: var(--sp-accent);
   background: var(--sp-bg);
-  border-radius: 12px;
 }
 
 .sidepeek-footer-preview-area {
@@ -1342,6 +1378,10 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
   min-width: 0;
   align-items: center;
   gap: 2px;
+}
+
+@container (max-width: 340px) {
+  .sidepeek-footer-tools { gap: 0; }
 }
 
 .sidepeek-tool-btn {
