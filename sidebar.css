@@ -981,14 +981,14 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
 .sidepeek-act-reply:hover {
   color: var(--sp-accent);
 }
-.sidepeek-act-reply:hover .sidepeek-action-btn-surface {
+.sidepeek-act-reply:hover .sidepeek-action-btn-surface::before {
   background: rgba(29, 155, 240, 0.1);
 }
 
 .sidepeek-act-repost:hover {
   color: var(--sp-repost);
 }
-.sidepeek-act-repost:hover .sidepeek-action-btn-surface {
+.sidepeek-act-repost:hover .sidepeek-action-btn-surface::before {
   background: rgba(0, 186, 124, 0.1);
 }
 .sidepeek-act-repost.active {
@@ -998,7 +998,7 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
 .sidepeek-act-like:hover {
   color: var(--sp-like);
 }
-.sidepeek-act-like:hover .sidepeek-action-btn-surface {
+.sidepeek-act-like:hover .sidepeek-action-btn-surface::before {
   background: rgba(249, 24, 128, 0.1);
 }
 .sidepeek-act-like.active {
@@ -1011,7 +1011,7 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
 .sidepeek-act-views:hover {
   color: var(--sp-accent);
 }
-.sidepeek-act-views:hover .sidepeek-action-btn-surface {
+.sidepeek-act-views:hover .sidepeek-action-btn-surface::before {
   background: rgba(29, 155, 240, 0.1);
 }
 
@@ -1019,8 +1019,8 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
 .sidepeek-act-share:hover {
   color: var(--sp-accent);
 }
-.sidepeek-act-bookmark:hover .sidepeek-action-btn-surface,
-.sidepeek-act-share:hover .sidepeek-action-btn-surface {
+.sidepeek-act-bookmark:hover .sidepeek-action-btn-surface::before,
+.sidepeek-act-share:hover .sidepeek-action-btn-surface::before {
   background: rgba(29, 155, 240, 0.1);
 }
 .sidepeek-act-bookmark.active {
@@ -2454,6 +2454,7 @@ a.sidepeek-handle:hover { text-decoration: underline; }
 
 .sidepeek-more-menu,
 .sidepeek-share-menu {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   position: fixed;
   z-index: 2147483645;
   background: var(--sp-bg);
@@ -2750,3 +2751,52 @@ a.sidepeek-handle:hover { text-decoration: underline; }
 .sidepeek-thread-continuation > .sidepeek-collapse-btn { font-size: 13px; line-height: 1.4; }
 
 .sidepeek-thread-continuation > .sidepeek-collapse-btn:hover { color: var(--sp-muted); }
+
+/* More controls reserve a real target outside the custom scrollbar lane. */
+.sidepeek-more-col { flex: 0 0 32px; margin-right: 0; }
+.sidepeek-act-more {
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  padding: 0;
+  justify-content: flex-end;
+  color: var(--sp-thread-line);
+}
+.sidepeek-act-more svg { display: block; width: 18.75px; height: 18.75px; flex-shrink: 0; fill: currentColor; }
+.sidepeek-act-more:is(:hover, :focus-visible, [aria-expanded="true"]) {
+  color: var(--sp-accent);
+}
+.sidepeek-act-more:focus-visible { outline: 2px solid var(--sp-accent); outline-offset: 1px; }
+.sidepeek-more-menu { box-sizing: border-box; width: max-content; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
+.sidepeek-more-menu .sidepeek-menu-item { box-sizing: border-box; min-width: 0; }
+.sidepeek-more-menu .sidepeek-menu-item > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.sidepeek-more-menu .sidepeek-menu-item:focus-visible { outline: 2px solid var(--sp-accent); outline-offset: -2px; background: var(--sp-soft); }
+
+.sidepeek-more-menu .sidepeek-menu-delete { color: #f4212e; }
+.sidepeek-more-menu .sidepeek-menu-item:disabled { opacity: 0.5; cursor: default; }
+
+/* Hover decoration follows the icon, independent of counts or hit-area width. */
+.sidepeek-action-btn-surface,
+.sidepeek-act-more { position: relative; isolation: isolate; }
+.sidepeek-action-btn-surface::before,
+.sidepeek-act-more::before {
+  content: "";
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: -1;
+  background: transparent;
+  transition: background 0.15s;
+}
+.sidepeek-action-btn-surface::before { left: -6.625px; }
+.sidepeek-act-more::before { right: -6.625px; }
+.sidepeek-act-more:is(:hover, :focus-visible, [aria-expanded="true"]) { background: transparent; }
+.sidepeek-act-more:is(:hover, :focus-visible, [aria-expanded="true"])::before,
+.sidepeek-action-btn:focus-visible .sidepeek-action-btn-surface::before { background: rgba(29, 155, 240, 0.1); }
+.sidepeek-act-repost:focus-visible .sidepeek-action-btn-surface::before { background: rgba(0, 186, 124, 0.1); }
+.sidepeek-act-like:focus-visible .sidepeek-action-btn-surface::before { background: rgba(249, 24, 128, 0.1); }

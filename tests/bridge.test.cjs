@@ -307,3 +307,39 @@ test('Google chunks preserve the complete Unicode text, links and whitespace; re
   await context.translateWithGoogle(text, 'zh');
   assert.equal(requests.length, count);
 });
+
+test('deletion uses the discovered operation, validates account and requires a deletion acknowledgement', async t => {
+  let acknowledged = true;
+  const b = bridge(r => ({ ok: true, json: async () => ({ data: acknowledged
+    ? { delete_tweet: { tweet_results: {} } } : { unrelated: true } }) }), w => {
+    const account = w.document.createElement('button'); account.dataset.testid = 'SideNav_AccountSwitcher_Button';
+    account.innerHTML = '<span>Reader</span><span>@reader</span>'; w.document.body.append(account);
+  }); t.after(() => b.w.close());
+  await assert.rejects(b.send({ type: 'DELETE_POST', tweetId: '123', screenName: 'someone_else' }), /verify/);
+  assert.equal(b.requests.length, 0);
+  await assert.rejects(b.send({ type: 'DELETE_POST', tweetId: '123', screenName: 'reader' }), /DeleteTweet/);
+  assert.equal(b.requests.length, 0, 'no hardcoded operation fallback');
+  await b.w.fetch('/i/api/graphql/test-delete/DeleteTweet', { method: 'POST', body: '{}' });
+  const result = await b.send({ type: 'DELETE_POST', tweetId: '123', screenName: 'ReAdEr' });
+  assert.equal(result.deletedTweetId, '123');
+  assert.deepEqual(JSON.parse(b.requests.at(-1).body).variables, { tweet_id: '123', dark_request: false });
+  acknowledged = false;
+  await assert.rejects(b.send({ type: 'DELETE_POST', tweetId: '123', screenName: 'reader' }), /confirm deletion/);
+});
+
+test('successful deletion invalidates cached thread snapshots containing the deleted post', async t => {
+  const b = bridge(r => {
+    const json = r.url.pathname.endsWith('/DeleteTweet') ? { data: { delete_tweet: { tweet_results: {} } } }
+      : { data: [{ tweet_results: { result: tweet('100') } }, { tweet_results: { result: tweet('123', '100') } }] };
+    return { ok: true, json: async () => json, clone: () => ({ json: async () => json }) };
+  }, w => {
+    const account = w.document.createElement('button'); account.dataset.testid = 'SideNav_AccountSwitcher_Button';
+    account.innerHTML = '<span>@reader</span>'; w.document.body.append(account);
+  }); t.after(() => b.w.close());
+  await b.w.fetch('/i/api/graphql/test/TweetDetail?variables=' + encodeURIComponent(JSON.stringify({ focalTweetId: '100' })));
+  await tick();
+  await b.w.fetch('/i/api/graphql/test/DeleteTweet', { method: 'POST', body: '{}' });
+  await b.send({ type: 'DELETE_POST', tweetId: '123', screenName: 'reader' });
+  const result = await b.send({ type: 'READ_THREAD', tweetId: '200' });
+  assert.equal(result.sidepeekObservedThreads.some(snapshot => snapshot.requestTweetId === '100'), false);
+});

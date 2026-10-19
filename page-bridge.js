@@ -417,6 +417,23 @@
     return json;
   }
 
+  async function deleteOwnPost(tweetId, screenName) {
+    const handle = [...document.querySelectorAll('[data-testid="SideNav_AccountSwitcher_Button"] span')]
+      .map(span => /^@([A-Za-z0-9_]{1,15})$/.exec(span.textContent.trim())?.[1]).find(Boolean);
+    if (!handle || handle.toLowerCase() !== String(screenName || "").toLowerCase()) {
+      throw new Error("Cannot verify the current account");
+    }
+    const json = await graphql("DeleteTweet", { tweet_id: tweetId, dark_request: false });
+    if (!json.data?.delete_tweet?.tweet_results) throw new Error("X did not confirm deletion");
+    // Successful deletion must also invalidate cached snapshots containing it.
+    for (const [key, entry] of observedThreadCache) {
+      if (entry.requestTweetId === tweetId || JSON.stringify(entry.json).includes(`"rest_id":"${tweetId}"`)) {
+        observedThreadCache.delete(key);
+      }
+    }
+    return { deletedTweetId: tweetId };
+  }
+
   async function replayTweetDetail(tweetId, cursor) {
     const template = captured.templates.get("TweetDetail");
     if (!template) throw new Error("X 详情接口尚未就绪，请刷新页面后重试");
@@ -840,7 +857,8 @@
 
     try {
       let payload;
-      if (message.type === "OPEN_NATIVE_REPLY") payload = openNativeReply(tweetId, message.quickTool === true);
+      if (message.type === "DELETE_POST") payload = await deleteOwnPost(tweetId, message.screenName);
+      else if (message.type === "OPEN_NATIVE_REPLY") payload = openNativeReply(tweetId, message.quickTool === true);
       else if (message.type === "READ_THREAD") {
         payload = await readThread(tweetId, message.cursor);
         // Preserve replies SideX itself already loaded before switching to a

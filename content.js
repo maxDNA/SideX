@@ -70,6 +70,7 @@
     schedule: `<svg viewBox="0 0 24 24" aria-hidden="true"><g><path d="M6 3V1.5a1 1 0 012 0V3h8V1.5a1 1 0 012 0V3h2.5A2.5 2.5 0 0123 5.5v13a2.5 2.5 0 01-2.5 2.5h-17A2.5 2.5 0 011 18.5v-13A2.5 2.5 0 013.5 3H6zm14.5 4.5h-17a.5.5 0 00-.5.5v10.5c0 .276.224.5.5.5h17c.276 0 .5-.224.5-.5V8a.5.5 0 00-.5-.5zM8 12.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm4 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm4 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm-8 4a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm4 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"></path></g></svg>`,
     location: `<svg viewBox="0 0 24 24" aria-hidden="true"><g><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"></path></g></svg>`,
     disclosure: `<svg viewBox="0 0 24 24" aria-hidden="true"><g><path d="M3 2h18.61l-3.5 7 3.5 7H5v6H3V2zm2 12h13.38l-2.5-5 2.5-5H5v10z"></path></g></svg>`,
+    trash: `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2zm-3 6h2v11h8V9h2v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9zm4 0h2v9h-2V9zm4 0h2v9h-2V9z"/></svg>`,
     more: `<svg viewBox="0 0 24 24" aria-hidden="true"><g><path d="M3 12c0-1.1.9-2 2-2s2 .9 2 2-.9 2-2 2-2-.9-2-2zm9 2c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm7 0c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"></path></g></svg>`,
     copy: `<svg viewBox="0 0 24 24" aria-hidden="true"><g><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"></path></g></svg>`,
     mute: `<svg viewBox="0 0 24 24" aria-hidden="true"><g><path d="M18 6.59V1.2L8.71 7H5.5C4.12 7 3 8.12 3 9.5v5C3 15.88 4.12 17 5.5 17h3.21L18 22.8v-5.39l-2-2V7.7l-4.71 2.95-.58-.9 6.29-3.94 1 .78zM16 13.59l-2-2V9.41l2-1.25v5.43zm5.71 8.7l-19-19 1.41-1.41 19 19-1.41 1.41z"></path></g></svg>`,
@@ -362,6 +363,10 @@
       followersCountLabel: "关注者",
       opBadge: "作者",
       opBadgeTitle: "原推文作者",
+      deletePost: "删除",
+      deletePostConfirm: "确定删除这条帖子吗？此操作无法撤销。",
+      postDeleted: "帖子已删除",
+      deletePostFailed: "删除失败，请重试",
       moreActionsTitle: "更多操作",
       copyLink: "复制推文链接",
       copyText: "复制正文文本",
@@ -516,6 +521,10 @@
       followersCountLabel: "Followers",
       opBadge: "Author",
       opBadgeTitle: "Post author",
+      deletePost: "Delete",
+      deletePostConfirm: "Delete this post? This cannot be undone.",
+      postDeleted: "Post deleted",
+      deletePostFailed: "Could not delete the post. Please try again.",
       moreActionsTitle: "More",
       copyLink: "Copy link to post",
       copyText: "Copy post text",
@@ -710,11 +719,12 @@
     if (!name) {
       name = handle || (getLocale() === "zh" ? "我" : "You");
     }
+    const authenticated = Boolean(handle);
     if (!handle) {
       handle = "you";
     }
 
-    return { avatar, name, handle };
+    return { avatar, name, handle, authenticated };
   }
 
   function getCurrentUserAvatar() {
@@ -1049,9 +1059,9 @@
       }
     }
 
-    body.addEventListener("scroll", () => {
+    body.addEventListener("scroll", (event) => {
       closeRepostMenu();
-      closeMoreMenu();
+      if (!event.detail?.sidepeekRender) closeMoreMenu();
       closeShareMenu();
       hideUserHoverCard();
       if (!isDragging) {
@@ -1573,7 +1583,8 @@
       }
     }
 
-    body.dispatchEvent(new Event("scroll"));
+    body.dispatchEvent(new CustomEvent("scroll", { detail: { sidepeekRender: true } }));
+    syncMoreMenu();
     nativeLayers?.sync(root);
     if (!state.loading && state.activeView === "root") queueMicrotask(prefetchSubRepliesForRoots);
   }
@@ -1989,7 +2000,7 @@
             ${timeHtml}
           </div>
           <div class="sidepeek-more-col">
-            <button type="button" class="sidepeek-act-more" title="${t("moreActionsTitle")}">
+            <button type="button" class="sidepeek-act-more" title="${t("moreActionsTitle")}" aria-label="${t("moreActionsTitle")}" aria-haspopup="menu" aria-expanded="false">
               ${ICONS.more}
             </button>
           </div>
@@ -2869,17 +2880,24 @@
   // ==========================================================================
   let activeMoreMenu = null;
   let activeMoreBtn = null;
+  let activeMorePostId = null;
+  const pendingPostDeletes = new Set();
+  const deletedPostIds = new Set();
 
-  function closeMoreMenu() {
+  function closeMoreMenu(restoreFocus = false) {
     if (activeMoreMenu) {
+      const button = activeMoreBtn;
+      button?.setAttribute("aria-expanded", "false");
+      button?.removeAttribute("aria-controls");
       activeMoreMenu.remove();
       activeMoreMenu = null;
       activeMoreBtn = null;
+      activeMorePostId = null;
+      if (restoreFocus && button?.isConnected) button.focus();
     }
   }
 
   function openMoreMenu(model, actMore) {
-    if (openNativeMenu(model, '[data-testid="caret"]')) return;
     if (activeMoreBtn === actMore) {
       closeMoreMenu();
       return;
@@ -2892,6 +2910,8 @@
     menu.className = `sidepeek-more-menu ${currentThemeClass()}`;
 
     const handle = model.author?.handle || "";
+    const account = getCurrentUserInfo();
+    const isSelf = account.authenticated && handle && account.handle.toLowerCase() === handle.toLowerCase();
 
     menu.innerHTML = `
       <button type="button" class="sidepeek-menu-item sidepeek-menu-copy-link">
@@ -2906,7 +2926,12 @@
         <span class="sidepeek-menu-item-icon">${ICONS.external}</span>
         <span>${t("openOnXDirect")}</span>
       </button>
-      ${handle ? `
+      ${isSelf ? `
+      <button type="button" class="sidepeek-menu-item danger sidepeek-menu-delete" ${pendingPostDeletes.has(model.id) ? "disabled" : ""}>
+        <span class="sidepeek-menu-item-icon">${ICONS.trash}</span>
+        <span>${t("deletePost")}</span>
+      </button>
+      ` : handle ? `
       <button type="button" class="sidepeek-menu-item sidepeek-menu-mute">
         <span class="sidepeek-menu-item-icon">${ICONS.mute}</span>
         <span>${t("muteUser", { handle })}</span>
@@ -2918,49 +2943,78 @@
       ` : ""}
     `;
 
-    // Position menu near button
-    const rect = actMore.getBoundingClientRect();
-    const menuWidth = 190;
-    const menuHeight = handle ? 210 : 130;
-
-    let top = rect.bottom + 4;
-    if (top + menuHeight > window.innerHeight - 8) {
-      top = rect.top - menuHeight - 4;
+    menu.id = "sidepeek-more-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", t("moreActionsTitle"));
+    for (const item of menu.querySelectorAll("button")) {
+      item.setAttribute("role", "menuitem");
+      item.tabIndex = -1;
     }
-    let left = rect.right - menuWidth;
-    if (left < 8) left = 8;
-    if (left + menuWidth > window.innerWidth - 8) {
-      left = window.innerWidth - menuWidth - 8;
-    }
-
-    menu.style.top = `${Math.round(top)}px`;
-    menu.style.left = `${Math.round(left)}px`;
-
-    menu.querySelector(".sidepeek-menu-copy-link")?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      closeMoreMenu();
-      if (model.url) {
-        navigator.clipboard?.writeText(model.url).then(() => {
-          showToast(t("linkCopied"));
-        });
+    menu.addEventListener("keydown", event => {
+      const items = [...menu.querySelectorAll("button:not(:disabled)")];
+      const index = items.indexOf(document.activeElement);
+      let next;
+      if (event.key === "ArrowDown") next = (index + 1) % items.length;
+      if (event.key === "ArrowUp") next = (index - 1 + items.length) % items.length;
+      if (event.key === "Home") next = 0;
+      if (event.key === "End") next = items.length - 1;
+      if (next !== undefined) { event.preventDefault(); items[next]?.focus(); }
+      if (event.key === "Escape") {
+        event.preventDefault(); event.stopPropagation(); closeMoreMenu(true);
       }
+      if (event.key === "Tab") closeMoreMenu(true);
     });
 
-    menu.querySelector(".sidepeek-menu-copy-text")?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      closeMoreMenu();
-      const rawText = model.text || "";
-      if (rawText) {
-        navigator.clipboard?.writeText(rawText).then(() => {
-          showToast(t("textCopied"));
-        });
+    const copy = async (value, successKey) => {
+      closeMoreMenu(true);
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+        await navigator.clipboard.writeText(value || "");
+        showToast(t(successKey));
+      } catch {
+        showToast(getLocale() === "zh" ? "复制失败，请重试" : "Copy failed. Please try again.");
       }
+    };
+
+    menu.querySelector(".sidepeek-menu-copy-link")?.addEventListener("click", (e) => {
+      e.stopPropagation(); copy(model.url, "linkCopied");
+    });
+    menu.querySelector(".sidepeek-menu-copy-text")?.addEventListener("click", (e) => {
+      e.stopPropagation(); copy(model.text, "textCopied");
     });
 
     menu.querySelector(".sidepeek-menu-open-x")?.addEventListener("click", (e) => {
       e.stopPropagation();
       closeMoreMenu();
       if (model.url) window.open(model.url, "_blank");
+    });
+
+    menu.querySelector(".sidepeek-menu-delete")?.addEventListener("click", async event => {
+      event.stopPropagation();
+      if (pendingPostDeletes.has(model.id)) return;
+      closeMoreMenu(true);
+      const current = getCurrentUserInfo();
+      if (!current.authenticated || current.handle.toLowerCase() !== handle.toLowerCase()) return;
+      if (!window.confirm(t("deletePostConfirm"))) return;
+      pendingPostDeletes.add(model.id);
+      try {
+        const result = await requestPage("DELETE_POST", { tweetId: model.id, screenName: handle });
+        if (result?.deletedTweetId !== model.id) throw new Error("Deletion was not acknowledged");
+        deletedPostIds.add(model.id);
+        const parent = model.inReplyToId === state.focalTweetId ? state.focalModel : state.tree?.byId.get(model.inReplyToId);
+        if (parent?.counts) parent.counts.replies = Math.max(0, parent.counts.replies - 1);
+        if (model.id === state.focalTweetId) closeDrawer();
+        else {
+          state.replies = state.replies.filter(reply => reply.id !== model.id);
+          state.tree = Core.buildConversationTree(visibleReplies(), state.focalTweetId);
+          if (state.replyTarget?.id === model.id) state.replyTarget = null;
+          if (state.activeView?.parentId === model.id) state.activeView = "root";
+          renderDrawer();
+        }
+        showToast(t("postDeleted"));
+      } catch {
+        showToast(t("deletePostFailed"));
+      } finally { pendingPostDeletes.delete(model.id); }
     });
 
     menu.querySelector(".sidepeek-menu-mute")?.addEventListener("click", async (e) => {
@@ -2988,6 +3042,44 @@
     document.body.appendChild(menu);
     activeMoreMenu = menu;
     activeMoreBtn = actMore;
+    activeMorePostId = model.id;
+    actMore.setAttribute("aria-expanded", "true");
+    actMore.setAttribute("aria-controls", menu.id);
+    syncMoreMenu();
+    menu.querySelector("button")?.focus();
+  }
+
+  function syncMoreMenu() {
+    if (!activeMoreMenu) return;
+    const root = document.getElementById(ROOT_ID);
+    const button = [...(root?.querySelectorAll("article.sidepeek-comment-item") || [])]
+      .find(item => item.dataset.id === activeMorePostId)?.querySelector(".sidepeek-act-more");
+    const body = root?.querySelector(".sidepeek-body");
+    if (!button || !body) { closeMoreMenu(); return; }
+    if (activeMoreBtn !== button) {
+      activeMoreBtn?.setAttribute("aria-expanded", "false");
+      activeMoreBtn?.removeAttribute("aria-controls");
+      activeMoreBtn = button;
+    }
+    button.setAttribute("aria-expanded", "true");
+    button.setAttribute("aria-controls", activeMoreMenu.id);
+    const rect = button.getBoundingClientRect();
+    const bounds = body.getBoundingClientRect();
+    if (bounds.height && (rect.bottom <= bounds.top || rect.top >= bounds.bottom)) {
+      closeMoreMenu(); return;
+    }
+    const left = Math.max(8, bounds.left + 8);
+    const right = Math.min(window.innerWidth - 8, (bounds.width ? bounds.right : window.innerWidth) - 20);
+    const top = Math.max(8, bounds.top + 4);
+    const bottom = Math.min(window.innerHeight - 8, bounds.height ? bounds.bottom - 4 : window.innerHeight - 8);
+    activeMoreMenu.style.maxWidth = `${Math.max(0, right - left)}px`;
+    activeMoreMenu.style.maxHeight = `${Math.max(0, bottom - top)}px`;
+    const box = activeMoreMenu.getBoundingClientRect();
+    // Layout dimensions exclude the entry animation scale.
+    const measured = { width: activeMoreMenu.offsetWidth || box.width, height: activeMoreMenu.offsetHeight || box.height };
+    const y = rect.bottom + 4 + measured.height <= bottom ? rect.bottom + 4 : rect.top - measured.height - 4;
+    activeMoreMenu.style.left = `${Math.round(Math.max(left, Math.min(rect.right - measured.width, right - measured.width)))}px`;
+    activeMoreMenu.style.top = `${Math.round(Math.max(top, Math.min(y, bottom - measured.height)))}px`;
   }
 
   // ==========================================================================
@@ -3676,7 +3768,7 @@
       for (const ancestorId of path) visibility.set(ancestorId, visible);
       return visible;
     };
-    return state.replies.filter(isVisible)
+    return state.replies.filter(reply => !deletedPostIds.has(reply.id) && isVisible(reply))
       .slice().sort((a, b) => Boolean(a._gateFor) - Boolean(b._gateFor));
   }
 
@@ -4561,7 +4653,7 @@
         return;
       }
       if (activeMoreMenu) {
-        closeMoreMenu();
+        closeMoreMenu(true);
         return;
       }
       if (activeShareMenu) {

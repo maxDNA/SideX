@@ -248,7 +248,7 @@ test('translation settings preserve accurate provider and support external trans
   assert.ok(p.query('.sidepeek-text').textContent.length > 0);
 });
 
-test('native buttons and menus are reused, and native rollback updates the sidebar', async t => {
+test('native actions retain rollback syncing while more always uses the custom menu', async t => {
   const p = createPage(); t.after(() => p.w.close());
   const native = p.w.document.createElement('article');
   native.dataset.testid = 'tweet';
@@ -267,8 +267,8 @@ test('native buttons and menus are reused, and native rollback updates the sideb
   assert.equal(like.getAttribute('aria-pressed'), 'false');
   assert.equal(like.textContent.trim(), '4');
   p.query('.sidepeek-act-more').click();
-  assert.equal(menus, 1);
-  assert.equal(p.query('.sidepeek-more-menu'), null);
+  assert.equal(menus, 0);
+  assert.ok(p.query('.sidepeek-more-menu'));
 });
 
 test('an absent native reply never clicks an unrelated post containing its quoted link', async t => {
