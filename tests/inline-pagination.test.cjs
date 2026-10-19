@@ -197,6 +197,38 @@ test('an observation-only update retains cached reply order when the current res
   assert.deepEqual(Array.from(parsed.replies, r => r.id), ['103', '101']);
 });
 
+test('late native observations cannot restore a completed inline continuation', async t => {
+  const p = await open(t, m => m.cursor
+    ? detail([moduleEntry('101', [tweet('103', '102'), tweet('104', '103')])], { posts: [] })
+    : initial(), { sidex_auto_load_replies: false });
+  p.query('.sidepeek-inline-load-more-btn').click(); await tick();
+  assert.ok(p.query('[data-id="104"]'));
+  assert.ok(p.query('.sidepeek-collapse-btn'));
+  assert.equal(p.query('.sidepeek-inline-load-more-btn'), null);
+  observeNative(p, initial()); await tick();
+  assert.equal(p.query('.sidepeek-inline-load-more-btn'), null, 'an older response must not resurrect the consumed cursor');
+  assert.ok(p.query('.sidepeek-collapse-btn'));
+  assert.equal(p.calls.filter(m => m.cursor).length, 1);
+  const fresh = initial('genuinely-new');
+  observeNative(p, fresh); await tick();
+  assert.ok(p.query('.sidepeek-inline-load-more-btn'), 'a new continuation remains available');
+  observeNative(p, initial()); await tick();
+  p.query('.sidepeek-inline-load-more-btn').click(); await tick();
+  assert.equal(p.calls.filter(m => m.cursor).at(-1).cursor, 'genuinely-new', 'older observations cannot roll back a newer cursor');
+  p.clickPost(1); await tick(); p.clickPost(0); await tick();
+  assert.ok(p.query('.sidepeek-inline-load-more-btn'), 'opening a new thread session resets the consumed history');
+});
+
+test('a native module completion also prevents replaying its old continuation', async t => {
+  const p = await open(t, () => initial(), { sidex_auto_load_replies: false });
+  observeNative(p, detail([moduleEntry('101', [tweet('101', '100'), tweet('102', '101'), tweet('103', '102')])]));
+  await tick();
+  assert.equal(p.query('.sidepeek-inline-load-more-btn'), null);
+  observeNative(p, initial()); await tick();
+  assert.equal(p.query('.sidepeek-inline-load-more-btn'), null);
+  assert.equal(p.calls.filter(m => m.cursor).length, 0, 'completion does not require a redundant request');
+});
+
 for (const addsReply of [false, true]) {
   test('native observations preserve an in-flight inline request, with a new reply ' + addsReply, async t => {
     let finish;

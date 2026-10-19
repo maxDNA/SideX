@@ -114,6 +114,7 @@
     autoExpandReplyText: false,
     threadPages: new Map(),
     inlinePages: new Map(),
+    inlineCursorHistory: new Map(),
     unavailableReplyIds: new Set(),
     openGatedThreads: new Set(),
     consumedCursors: new Map(),
@@ -3746,12 +3747,16 @@
     for (const key of touched) {
       const previous = state.inlinePages.get(key);
       const descriptor = next.get(key);
+      const consumed = state.inlineCursorHistory.get(key) || previous?.consumed || new Set();
+      state.inlineCursorHistory.set(key, consumed);
+      if (previous?.cursor && (key === consumedKey || !descriptor)) consumed.add(previous.cursor);
       if (!descriptor) {
         state.inlinePages.delete(key);
         continue;
       }
-      const consumed = previous?.consumed || new Set();
-      if (key === consumedKey && previous?.cursor) consumed.add(previous.cursor);
+      // Keep consumed positions after completion: late native snapshots must
+      // neither resurrect an exhausted page nor roll back a newer cursor.
+      if (key !== consumedKey && consumed.has(descriptor.cursor) && previous?.cursor !== descriptor.cursor) continue;
       // Background observations of the same cursor must retain the owner of
       // an in-flight request, and must not resume paused or failed pagination.
       if (previous?.cursor === descriptor.cursor) {
@@ -3934,6 +3939,7 @@
     state.threadCursors.clear();
     state.threadPages.clear();
     state.inlinePages.clear();
+    state.inlineCursorHistory.clear();
     state.unavailableReplyIds.clear();
     state.openGatedThreads.clear();
     state.consumedCursors.clear();
@@ -4179,6 +4185,7 @@
         state.threadCursors.clear();
         state.threadPages.clear();
         state.inlinePages.clear();
+        state.inlineCursorHistory.clear();
         state.unavailableReplyIds.clear();
         state.openGatedThreads.clear();
         state.consumedCursors.clear();
@@ -4241,6 +4248,7 @@
         state.threadCursors.clear();
         state.threadPages.clear();
         state.inlinePages.clear();
+        state.inlineCursorHistory.clear();
         state.openGatedThreads.clear();
         state.consumedCursors.clear();
         rememberThreadCursor(tweetId, cursor);
