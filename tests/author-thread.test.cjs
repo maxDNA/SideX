@@ -34,7 +34,7 @@ for (const limit of [1, 2, 3, 5, 'all']) {
     assert.equal(p.w.document.querySelectorAll('.sidepeek-child-comment').length, limit === 'all' ? 8 : limit);
     assert.equal(p.calls.filter(m => m.tweetId === '101').length, 1);
     if (limit === 'all') assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn'), null);
-    else assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, `展开另外 ${8 - limit} 条已加载回复`);
+    else assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, `展开 ${8 - limit} 条回复`);
   });
 }
 
@@ -80,7 +80,8 @@ test('non-author continuations and owner replies to other users remain preview-l
   assert.equal(p.query('[data-id="103"]'), null);
   assert.equal(p.query('[data-id="120"]'), null);
   const expand = p.query('.sidepeek-thread-group .sidepeek-expand-btn');
-  assert.equal(expand.textContent, '展开另外 4 条已加载回复');
+  assert.equal(expand.textContent, '展开 4 条回复');
+  assert.ok(expand.parentElement.classList.contains('sidepeek-thread-continuation'));
   expand.click(); await tick();
   assert.ok(p.query('[data-id="121"]'));
   assert.equal(p.calls.filter(m => m.type === 'READ_THREAD').length, 1, 'revealing loaded replies does not fetch');
@@ -92,7 +93,7 @@ test('mixed branches count only actually hidden loaded replies and keep author c
   assert.ok(p.query('[data-id="120"]'));
   assert.equal(p.query('[data-id="121"]'), null);
   assert.equal(p.query('[data-id="122"]'), null);
-  assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, '展开另外 2 条已加载回复');
+  assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, '展开 2 条回复');
 });
 
 test('pagination extends the author chain while retaining manual text expansion', async t => {
@@ -111,7 +112,8 @@ test('unknown child counts use an unnumbered fetch button rather than inventing 
   const p = await open(t, [post('100'), post('101', '100', 'guest', 'Reply', 20), post('102', '101', 'guest')]);
   const button = p.query('.sidepeek-fetch-replies-btn');
   assert.ok(button);
-  assert.equal(button.textContent, '加载更多回复');
+  assert.equal(button.textContent, '显示更多回复');
+  assert.ok(button.parentElement.classList.contains('sidepeek-thread-continuation'));
   assert.doesNotMatch(button.textContent, /20/);
 });
 
@@ -126,7 +128,7 @@ test('unlimited preview shows every loaded depth and attempts to complete missin
   textarea.value = 'Keep draft'; textarea.dispatchEvent(new p.w.Event('input', { bubbles: true }));
   p.change({ sidex_sub_reply_limit: { newValue: 1 } }); await tick();
   assert.deepEqual(ids(), ['101', '102', '120']);
-  assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, '展开另外 6 条已加载回复');
+  assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, '展开 6 条回复');
   assert.equal(p.calls.length, 2, 'the finite preview attempts to complete the missing child');
   p.change({ sidex_sub_reply_limit: { newValue: 'all' } }); await tick();
   assert.deepEqual(ids(), ['101', '102', '103', '104', '105', '106', '107', '108', '120']);

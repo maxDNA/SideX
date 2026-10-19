@@ -44,6 +44,9 @@ for (const lang of ['zh', 'en']) {
       : m.cursor === 'outer' ? new Promise(() => {})
         : detail([moduleEntry('101', [tweet('101', '100'), tweet('102', '101')], 'inner')], { bottom: 'outer', end: false }),
       { sidex_lang: lang, sidex_auto_load_replies: false });
+    assert.ok(p.query('.sidepeek-inline-load-more-btn').parentElement.classList.contains('sidepeek-thread-continuation'));
+    assert.equal(p.query('.sidepeek-inline-load-more-btn').textContent, lang === 'zh' ? '显示更多回复' : 'Show more replies');
+    assert.equal(p.query('.sidepeek-body > .sidepeek-pagination').classList.contains('sidepeek-thread-continuation'), false);
     p.query('.sidepeek-inline-load-more-btn').click(); await tick();
     assert.equal(p.query('.sidepeek-inline-load-more-btn').textContent, lang === 'zh' ? '正在加载回复...' : 'Loading replies...');
     finishInner(detail([moduleEntry('101', [tweet('103', '102')])], { posts: [] })); await tick();
@@ -61,7 +64,7 @@ test('finite preview consumes an internal cursor only to fill the cap without ex
   await tick();
   assert.deepEqual(p.calls.filter(m => m.cursor).map(m => m.cursor), ['first']);
   assert.equal(p.w.document.querySelectorAll('.sidepeek-child-comment').length, 5);
-  assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, '展开另外 3 条已加载回复');
+  assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, '展开 3 条回复');
 });
 
 test('finite preview follows several pages and stops once the selected count is loaded', async t => {
@@ -506,7 +509,7 @@ test('internal continuations stay manual and reopening restores the finite previ
   assert.deepEqual(shown(), ['101', '102', '103']);
   p.query('.sidepeek-btn-close').click(); p.clickPost(0); await tick();
   assert.deepEqual(shown(), ['101', '102']);
-  assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, '展开另外 1 条已加载回复');
+  assert.equal(p.query('.sidepeek-thread-group .sidepeek-expand-btn').textContent, '展开 1 条回复');
   io.fire(); await tick();
   assert.equal(p.calls.filter(m => m.cursor).length, 1, 'reopening retains the cache without automatically fetching it again');
 });
