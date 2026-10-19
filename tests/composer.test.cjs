@@ -398,6 +398,8 @@ for (const leave of ['close', 'switch', 'change target']) {
     fileInput.dispatchEvent(new p.w.Event('change', { bubbles: true })); await tick(50);
     assert.equal(p.calls.filter(m => m.type === 'UPLOAD_MEDIA').length, 1);
     assert.equal(p.w.document.querySelectorAll('.sidepeek-pasted-preview').length, 1);
+    assert.equal(p.query('.sidepeek-footer-submit-btn').textContent, '回复');
+    assert.equal(p.query('.sidepeek-footer-submit-btn').disabled, true);
     if (leave === 'close') { p.query('.sidepeek-btn-close').click(); p.clickPost(0); await tick(); }
     else if (leave === 'switch') { p.clickPost(1); await tick(); input(p, 'Other draft'); p.clickPost(0); await tick(); }
     else { p.query('.sidepeek-act-reply').click(); input(p, 'Other draft'); p.query('.sidepeek-cancel-reply-target').click(); }

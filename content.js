@@ -1188,6 +1188,7 @@
             </div>
             <textarea class="sidepeek-footer-textarea" rows="1" placeholder="${replyPlaceholder}"></textarea>
             <div class="sidepeek-footer-preview-area"></div>
+          </div>
             <div class="sidepeek-footer-toolbar">
               <div class="sidepeek-footer-tools">
                 <label class="sidepeek-tool-btn sidepeek-tool-media" title="${t("mediaToolTitle")}">
@@ -1213,11 +1214,9 @@
                   </svg>
                   <span class="sidepeek-char-warn-num"></span>
                 </div>
-                <div class="sidepeek-action-divider"></div>
                 <button type="button" class="sidepeek-footer-submit-btn" disabled>${t("replyBtn")}</button>
               </div>
             </div>
-          </div>
         </div>
       </footer>`;
   }
@@ -2461,8 +2460,6 @@
       submitBtn.disabled = draft.sending || !hasContent || isOverLimit || isMediaUploading;
       if (draft.sending) {
         submitBtn.textContent = t("sending");
-      } else if (isMediaUploading) {
-        submitBtn.textContent = t("uploading");
       } else {
         submitBtn.textContent = t("replyBtn");
       }

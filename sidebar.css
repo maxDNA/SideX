@@ -180,7 +180,7 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 52px;
+  height: 53px;
   padding: 0 16px;
   border-bottom: 1px solid var(--sp-border);
   background: var(--sp-bg);
@@ -1214,9 +1214,10 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
 }
 
 .sidepeek-footer-inner {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 6px 10px;
+  align-items: start;
 }
 
 .sidepeek-footer-avatar-wrap {
@@ -1323,17 +1324,21 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
 }
 
 .sidepeek-footer-toolbar {
+  grid-column: 1 / -1;
+  /* Align the 18px icon edge with the avatar, outside its 32px hit area. */
+  margin-left: -7px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  flex-wrap: nowrap;
+  gap: 8px;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding-top: 4px;
 }
 
 .sidepeek-footer-tools {
   display: flex;
-  flex-wrap: wrap;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
   min-width: 0;
   align-items: center;
   gap: 2px;
@@ -1412,6 +1417,10 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
   text-align: center;
 }
 
+.sidepeek-char-warn-num:empty {
+  display: none;
+}
+
 .sidepeek-char-warn-num.warn-amber {
   color: #ffd400;
 }
@@ -1436,13 +1445,6 @@ body:has(#sidepeek-drawer-root.sidepeek-open) #layers {
 .sidepeek-tool-btn-highlight {
   animation: sp-pulse-btn 0.8s ease 3;
   color: var(--sp-accent) !important;
-}
-
-.sidepeek-action-divider {
-  width: 1px;
-  height: 20px;
-  background: var(--sp-border);
-  margin: 0 2px;
 }
 
 .sidepeek-footer-submit-btn {
