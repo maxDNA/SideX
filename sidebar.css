@@ -2662,9 +2662,11 @@ a.sidepeek-handle:hover { text-decoration: underline; }
   content: "";
   position: absolute;
   left: 33px;
-  top: 0;
-  height: 24px;
-  border-left: 2px dotted var(--sp-thread-line);
+  top: 50%;
+  width: 2px;
+  height: 18px;
+  transform: translateY(-50%);
+  background: repeating-linear-gradient(to bottom, var(--sp-thread-line) 0 2px, transparent 2px 7px);
   pointer-events: none;
 }
 
@@ -2700,6 +2702,7 @@ a.sidepeek-handle:hover { text-decoration: underline; }
   justify-content: flex-start;
   padding-left: 64px;
   text-align: left;
+  font-weight: 400;
 }
 
 :is(.sidepeek-pagination, .sidepeek-thread-continuation) > :is(.sidepeek-expand-btn, .sidepeek-collapse-btn):hover {
