@@ -393,7 +393,7 @@
     return [...new Map(models.map(model => [model.id, model])).values()];
   }
 
-  function parseTweetDetail(json, focalTweetId, knownModels = [], section = "") {
+  function parseTweetDetail(json, focalTweetId, knownModels = [], section = "", context = {}) {
     const focalId = String(focalTweetId || "");
     const observed = (json?.sidepeekObservedThreads || []).slice(-12);
     const merged = new Map();
@@ -419,12 +419,22 @@
     const pagination = replyPagination(json?.data || json, focalId, byId);
     const nativeContinuations = new Map();
     const nativeModules = new Map();
+    const cursorProgress = new Map();
     const liveModules = new Set(pagination.inlineModules.map(entry => `${entry.requestTweetId}:${entry.moduleId}`));
     for (const snapshot of observed) {
+      if (snapshot.json?.errors?.length) continue;
       for (const [key, entry] of nativeContinuations) {
         if (entry.requestTweetId === snapshot.requestTweetId && entry.cursor === snapshot.cursor) nativeContinuations.delete(key);
       }
       const nativePage = replyPagination(snapshot.json?.data || snapshot.json, snapshot.requestTweetId, byId, focalId);
+      // A successful cursor response is evidence of progress even if a later
+      // initial response repeats the old position when the drawer is reopened.
+      if (snapshot.cursor) {
+        for (const scope of nativePage.inlineModules) {
+          const key = `${scope.requestTweetId}:${scope.moduleId}:${snapshot.cursor}`;
+          cursorProgress.set(key, nativePage.inlineCursors.find(entry => entry.moduleId === scope.moduleId) || null);
+        }
+      }
       for (const scope of nativePage.inlineModules) {
         const key = `${scope.requestTweetId}:${scope.moduleId}`;
         nativeModules.set(key, scope);
@@ -439,6 +449,22 @@
         pagination.inlineCursors.push(entry);
       }
     }
+    pagination.inlineCursors = pagination.inlineCursors.flatMap(entry => {
+      // Keep direct pagination results authoritative so repeated positions
+      // still reach the caller's existing cycle/stall handling.
+      if (context.requestCursor) return [entry];
+      let current = entry;
+      const visited = new Set();
+      while (current) {
+        const key = `${current.requestTweetId}:${current.moduleId}:${current.cursor}`;
+        if (!cursorProgress.has(key) || visited.has(key)) break;
+        visited.add(key);
+        const next = cursorProgress.get(key);
+        if (next?.cursor === current.cursor) break;
+        current = next;
+      }
+      return current ? [current] : [];
+    });
     const focal = byId.get(focalId) || null;
 
     if (!focal) return { focal: null, replies: [], cursor: null, pagination, unavailableIds: [...unavailable] };

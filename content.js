@@ -3845,7 +3845,7 @@
       const json = await requestPage("READ_THREAD", { tweetId: page.requestTweetId, cursor: page.cursor });
       if (!state.open || generation !== state.threadGeneration || state.inlinePages.get(key) !== page) return;
       const section = page.gateFor ? state.threadPages.get(page.gateFor)?.sectionLabel || foldedText() : "";
-      const { focal, replies, pagination, unavailableIds } = Core.parseTweetDetail(json, page.requestTweetId, [state.focalModel, ...state.replies], section);
+      const { focal, replies, pagination, unavailableIds } = Core.parseTweetDetail(json, page.requestTweetId, [state.focalModel, ...state.replies], section, { requestCursor: page.cursor });
       const { added } = mergeReplyModels(replies, unavailableIds);
       state.loadedThreadIds.add(page.branchRootId);
       if (focal?.id === state.focalTweetId) state.focalModel = focal;
@@ -3993,7 +3993,7 @@
 
       const previousPage = state.threadPages.get(commentId) || {};
       const gated = state.openGatedThreads.has(commentId);
-      const { focal, replies, cursor: nextCursor, pagination, unavailableIds } = Core.parseTweetDetail(json, commentId, [state.focalModel, ...state.replies], gated ? previousPage.sectionLabel || foldedText() : "");
+      const { focal, replies, cursor: nextCursor, pagination, unavailableIds } = Core.parseTweetDetail(json, commentId, [state.focalModel, ...state.replies], gated ? previousPage.sectionLabel || foldedText() : "", { requestCursor: cursor });
       const beforeIds = new Set(state.replies.map(reply => reply.id));
 
       mergeReplyModels(replies, unavailableIds, commentId !== state.focalTweetId ? commentId : null);

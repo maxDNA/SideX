@@ -589,3 +589,56 @@ test('gated inline continuations are not exposed or fetched before explicit expa
   assert.ok(p.query('.sidepeek-section-label'));
   io.fire(); await tick(); assert.equal(p.calls.length, 1, 'spam continuation remains manual');
 });
+
+for (const reversed of [false, true]) {
+  test(`reopening reconciles a completed cached module with a stale initial cursor (reversed=${reversed})`, async t => {
+    const start = initial('a');
+    const done = detail([moduleEntry('101', [tweet('103', '102'), tweet('104', '103')])], { posts: [] });
+    for (const response of [start, done]) {
+      for (const entry of response.data.instructions[0].entries) {
+        for (const item of entry.content?.items || []) {
+          const post = item.item?.itemContent?.tweet_results?.result;
+          if (post) post.core.user_results.result.rest_id = 'guest';
+        }
+      }
+    }
+    const snapshots = [{ requestTweetId: '100', cursor: '', json: start },
+      { requestTweetId: '100', cursor: 'a', json: done }];
+    if (reversed) snapshots.reverse();
+    const p = await open(t, () => ({ ...start, sidepeekObservedThreads: snapshots }),
+      { sidex_sub_reply_limit: 1, sidex_auto_load_replies: false });
+    for (let round = 0; round < 2; round++) {
+      p.query('.sidepeek-thread-group .sidepeek-expand-btn').click(); await tick();
+      assert.deepEqual([...p.w.document.querySelectorAll('.sidepeek-thread-group article')].map(n => n.dataset.id), ['101', '102', '103', '104']);
+      assert.ok(p.query('.sidepeek-collapse-btn'));
+      assert.equal(p.query('.sidepeek-inline-load-more-btn'), null, 'completed cache must not restore an old cursor');
+      if (!round) { p.query('.sidepeek-btn-close').click(); p.clickPost(0); await tick(); }
+    }
+    assert.equal(p.calls.filter(m => m.cursor).length, 0);
+  });
+}
+
+test('cached cursor progress advances only its module and preserves direct repeated-cursor responses', t => {
+  const dom = new JSDOM('', { runScripts: 'outside-only' }); t.after(() => dom.window.close());
+  dom.window.eval(source('core.js')); const core = dom.window.SidePeekCore;
+  const start = detail([moduleEntry('101', [tweet('101', '100'), tweet('102', '101')], 'a'),
+    moduleEntry('110', [tweet('110', '100'), tweet('111', '110')], 'other')]);
+  const next = detail([moduleEntry('101', [tweet('103', '102')], 'b')], { posts: [] });
+  const json = { ...start, sidepeekObservedThreads: [{ requestTweetId: '100', cursor: 'a', json: next }] };
+  const cursors = value => Array.from(value.pagination.inlineCursors, p => p.cursor);
+  assert.deepEqual(cursors(core.parseTweetDetail(json, '100')), ['b', 'other']);
+  const direct = { ...initial('a'), sidepeekObservedThreads: [{ requestTweetId: '100', cursor: 'a', json: next }] };
+  assert.deepEqual(cursors(core.parseTweetDetail(direct, '100', [], '', { requestCursor: 'a' })), ['a']);
+  const done = detail([moduleEntry('101', [tweet('104', '103')])], { posts: [] });
+  const chain = { ...start, sidepeekObservedThreads: [
+    { requestTweetId: '100', cursor: 'b', json: done },
+    { requestTweetId: '100', cursor: 'a', json: next }
+  ] };
+  assert.deepEqual(cursors(core.parseTweetDetail(chain, '100')), ['other']);
+  const unrelated = { ...start, sidepeekObservedThreads: [{ requestTweetId: '999', cursor: 'a', json: done }] };
+  assert.ok(cursors(core.parseTweetDetail(unrelated, '100')).includes('a'), 'a different request cannot consume this cursor');
+  const unknown = { ...start, sidepeekObservedThreads: [{ requestTweetId: '100', cursor: 'a', json: detail([], { posts: [] }) }] };
+  assert.deepEqual(cursors(core.parseTweetDetail(unknown, '100')), ['a', 'other'], 'absence of module evidence is not completion');
+  const failed = { ...start, sidepeekObservedThreads: [{ requestTweetId: '100', cursor: 'a', json: { ...next, errors: [{ message: 'failed' }] } }] };
+  assert.deepEqual(cursors(core.parseTweetDetail(failed, '100')), ['a', 'other']);
+});
